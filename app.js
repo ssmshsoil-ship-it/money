@@ -37,6 +37,7 @@ import {
   var currentViewMonth = monthKeyOf(new Date());
   var isOnline = true;
   var unsubscribeSnapshot = null;
+  var editingId = null;
 
   function defaultState() {
     return {
@@ -227,27 +228,42 @@ import {
       html += '</div>';
     });
 
+    html += '<h2>월별 리포트 내보내기</h2>';
+    html += '<div class="card">';
+    html += '<p class="metric-sub">' + monthLabel(currentViewMonth) + ' 소비내역을 A4 한 장짜리 표로 내보냅니다.</p>';
+    html += '<div class="export-row">';
+    html += '<button class="btn secondary" data-action="export-monthly-excel">엑셀로 내보내기</button>';
+    html += '<button class="btn secondary" data-action="export-monthly-pdf">PDF로 내보내기</button>';
+    html += '</div>';
+    html += '</div>';
+
     app.innerHTML = html;
   }
 
   function renderAdd() {
+    var editingExpense = editingId ? state.expenses.find(function (e) { return e.id === editingId; }) : null;
+
     var html = '';
     html += syncBadge();
-    html += '<h1>지출 추가</h1>';
+    html += '<h1>' + (editingExpense ? '지출 수정' : '지출 추가') + '</h1>';
     html += '<div class="card">';
     html += '<label>날짜</label>';
-    html += '<input type="date" id="f-date" value="' + todayStr() + '">';
+    html += '<input type="date" id="f-date" value="' + (editingExpense ? editingExpense.date : todayStr()) + '">';
     html += '<label>카테고리</label>';
     html += '<div class="chip-group" id="f-cats">';
     state.categories.forEach(function (cat, i) {
-      html += '<div class="chip' + (i === 0 ? ' selected' : '') + '" data-cat="' + cat.id + '">' + escapeHtml(cat.name) + '</div>';
+      var isSelected = editingExpense ? cat.id === editingExpense.categoryId : i === 0;
+      html += '<div class="chip' + (isSelected ? ' selected' : '') + '" data-cat="' + cat.id + '">' + escapeHtml(cat.name) + '</div>';
     });
     html += '</div>';
     html += '<label>금액</label>';
-    html += '<input type="number" id="f-amount" placeholder="0" inputmode="numeric">';
+    html += '<input type="number" id="f-amount" placeholder="0" inputmode="numeric" value="' + (editingExpense ? editingExpense.amount : '') + '">';
     html += '<label>메모 (선택)</label>';
-    html += '<input type="text" id="f-memo" placeholder="예: 더팜마트">';
-    html += '<div style="margin-top:1rem;"><button class="btn" data-action="save-expense">저장</button></div>';
+    html += '<input type="text" id="f-memo" placeholder="예: 더팜마트" value="' + (editingExpense ? escapeHtml(editingExpense.memo || '') : '') + '">';
+    html += '<div style="margin-top:1rem;display:flex;gap:8px;">';
+    html += '<button class="btn" data-action="save-expense">' + (editingExpense ? '수정 저장' : '저장') + '</button>';
+    if (editingExpense) html += '<button class="btn secondary" data-action="cancel-edit">취소</button>';
+    html += '</div>';
     html += '</div>';
 
     html += '<h2>최근 내역</h2>';
@@ -258,9 +274,10 @@ import {
       html += '<div class="card" style="padding:0.4rem 1.1rem;">';
       recent.forEach(function (e) {
         var cat = state.categories.find(function (c) { return c.id === e.categoryId; });
-        html += '<div class="tx-row">';
+        html += '<div class="tx-row' + (e.id === editingId ? ' editing' : '') + '">';
         html += '<div class="tx-main"><span class="tx-cat">' + (cat ? escapeHtml(cat.name) : '기타') + (e.memo ? ' · ' + escapeHtml(e.memo) : '') + '</span><span class="tx-date">' + e.date + '</span></div>';
         html += '<span class="tx-amt">' + formatWon(e.amount) + '</span>';
+        html += '<button class="tx-edit" data-action="edit-expense" data-id="' + e.id + '">수정</button>';
         html += '<button class="tx-del" data-action="delete-expense" data-id="' + e.id + '">×</button>';
         html += '</div>';
       });
@@ -366,7 +383,10 @@ import {
     if (action === 'prev-month') { currentViewMonth = shiftMonth(currentViewMonth, -1); render(); }
     else if (action === 'next-month') { currentViewMonth = shiftMonth(currentViewMonth, 1); render(); }
     else if (action === 'save-expense') { saveExpense(); }
+    else if (action === 'edit-expense') { editingId = actionEl.dataset.id; render(); }
+    else if (action === 'cancel-edit') { editingId = null; render(); }
     else if (action === 'delete-expense') {
+      if (actionEl.dataset.id === editingId) editingId = null;
       state.expenses = state.expenses.filter(function (ex) { return ex.id !== actionEl.dataset.id; });
       pushState();
     }
@@ -383,6 +403,8 @@ import {
     else if (action === 'save-settings') { saveSettings(); }
     else if (action === 'export-data') { exportData(); }
     else if (action === 'import-data') { document.getElementById('import-file').click(); }
+    else if (action === 'export-monthly-excel') { exportMonthlyExcel(currentViewMonth); }
+    else if (action === 'export-monthly-pdf') { exportMonthlyPDF(currentViewMonth); }
     else if (action === 'reset-data') {
       if (confirm('모든 데이터를 삭제하고 초기 상태로 되돌립니다. 계속할까요? (두 분 모두에게 적용됩니다)')) {
         state = defaultState();
@@ -426,7 +448,18 @@ import {
       alert('금액을 입력해주세요.');
       return;
     }
-    state.expenses.push({ id: uid(), date: date, categoryId: categoryId, amount: amount, memo: memo });
+    if (editingId) {
+      var existing = state.expenses.find(function (e) { return e.id === editingId; });
+      if (existing) {
+        existing.date = date;
+        existing.categoryId = categoryId;
+        existing.amount = amount;
+        existing.memo = memo;
+      }
+      editingId = null;
+    } else {
+      state.expenses.push({ id: uid(), date: date, categoryId: categoryId, amount: amount, memo: memo });
+    }
     pushState();
   }
 
@@ -443,16 +476,168 @@ import {
     alert('저장되었습니다.');
   }
 
-  function exportData() {
-    var blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  function triggerDownload(blob, filename) {
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'budget-backup-' + todayStr() + '.json';
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  function exportData() {
+    var blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    triggerDownload(blob, 'budget-backup-' + todayStr() + '.json');
+  }
+
+  // ---------- Monthly report (Excel / PDF) ----------
+
+  function monthlyReportData(mk) {
+    var rows = state.categories.map(function (cat) {
+      var spent = getCategoryTotal(mk, cat.id);
+      return { name: cat.name, spent: spent, cap: cat.cap, over: spent > cat.cap };
+    });
+    var totalSpent = rows.reduce(function (s, r) { return s + r.spent; }, 0);
+    var totalCap = rows.reduce(function (s, r) { return s + r.cap; }, 0);
+    return { rows: rows, totalSpent: totalSpent, totalCap: totalCap };
+  }
+
+  function exportMonthlyExcel(mk) {
+    if (!window.ExcelJS) { alert('엑셀 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.'); return; }
+    var data = monthlyReportData(mk);
+    var goal = state.savingsGoal;
+    var actualSavings = state.monthlySavings[mk] || 0;
+
+    var wb = new window.ExcelJS.Workbook();
+    var ws = wb.addWorksheet('소비내역', {
+      pageSetup: {
+        paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 1,
+        margins: { left: 0.5, right: 0.5, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 }
+      }
+    });
+    ws.columns = [{ width: 22 }, { width: 16 }, { width: 16 }, { width: 12 }];
+
+    var thin = { style: 'thin', color: { argb: 'FF000000' } };
+    var borderAll = { top: thin, left: thin, bottom: thin, right: thin };
+    var headerFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD6ECFF' } };
+    var blackFont = { color: { argb: 'FF000000' } };
+
+    ws.mergeCells('A1:D1');
+    var titleCell = ws.getCell('A1');
+    titleCell.value = monthLabel(mk) + ' 소비내역';
+    titleCell.font = { bold: true, size: 16, color: { argb: 'FF000000' } };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 24;
+
+    ws.mergeCells('A2:D2');
+    var summaryCell = ws.getCell('A2');
+    summaryCell.value = '저축목표 ' + formatWon(goal) + '  ·  실제저축 ' + formatWon(actualSavings) + '  ·  총지출 ' + formatWon(data.totalSpent);
+    summaryCell.font = { size: 10, color: { argb: 'FF000000' } };
+    summaryCell.alignment = { horizontal: 'center' };
+
+    var headerRowIdx = 4;
+    ['카테고리', '지출액', '상한액', '상태'].forEach(function (h, i) {
+      var cell = ws.getCell(headerRowIdx, i + 1);
+      cell.value = h;
+      cell.font = { bold: true, color: { argb: 'FF000000' } };
+      cell.fill = headerFill;
+      cell.border = borderAll;
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+
+    var r = headerRowIdx + 1;
+    data.rows.forEach(function (row) {
+      ws.getCell(r, 1).value = row.name;
+      ws.getCell(r, 2).value = row.spent;
+      ws.getCell(r, 3).value = row.cap;
+      ws.getCell(r, 4).value = row.over ? '초과' : '정상';
+      for (var c = 1; c <= 4; c++) {
+        var cell = ws.getCell(r, c);
+        cell.border = borderAll;
+        cell.font = blackFont;
+        if (c === 2 || c === 3) { cell.numFmt = '#,##0"원"'; cell.alignment = { horizontal: 'right' }; }
+        else cell.alignment = { horizontal: c === 1 ? 'left' : 'center' };
+      }
+      r++;
+    });
+
+    ws.getCell(r, 1).value = '합계';
+    ws.getCell(r, 2).value = data.totalSpent;
+    ws.getCell(r, 3).value = data.totalCap;
+    ws.getCell(r, 4).value = '';
+    for (var c2 = 1; c2 <= 4; c2++) {
+      var tcell = ws.getCell(r, c2);
+      tcell.border = borderAll;
+      tcell.font = { bold: true, color: { argb: 'FF000000' } };
+      if (c2 === 2 || c2 === 3) { tcell.numFmt = '#,##0"원"'; tcell.alignment = { horizontal: 'right' }; }
+    }
+
+    wb.xlsx.writeBuffer().then(function (buf) {
+      var blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      triggerDownload(blob, '소비내역-' + mk + '.xlsx');
+    });
+  }
+
+  function buildReportNode(mk) {
+    var data = monthlyReportData(mk);
+    var goal = state.savingsGoal;
+    var actualSavings = state.monthlySavings[mk] || 0;
+    var wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:fixed;left:-9999px;top:0;width:750px;background:#ffffff;' +
+      'padding:28px;font-family:"Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:#000000;';
+
+    var rowsHtml = data.rows.map(function (row) {
+      return '<tr>' +
+        '<td style="border:1px solid #000;padding:9px 10px;text-align:left;">' + escapeHtml(row.name) + '</td>' +
+        '<td style="border:1px solid #000;padding:9px 10px;text-align:right;">' + formatWon(row.spent) + '</td>' +
+        '<td style="border:1px solid #000;padding:9px 10px;text-align:right;">' + formatWon(row.cap) + '</td>' +
+        '<td style="border:1px solid #000;padding:9px 10px;text-align:center;">' + (row.over ? '초과' : '정상') + '</td>' +
+        '</tr>';
+    }).join('');
+
+    wrapper.innerHTML =
+      '<h1 style="text-align:center;font-size:26px;margin:0 0 6px;color:#000;">' + escapeHtml(monthLabel(mk)) + ' 소비내역</h1>' +
+      '<p style="text-align:center;font-size:13px;color:#000;margin:0 0 22px;">저축목표 ' + formatWon(goal) +
+      ' · 실제저축 ' + formatWon(actualSavings) + ' · 총지출 ' + formatWon(data.totalSpent) + '</p>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:14px;background:#fff;">' +
+      '<thead><tr>' +
+      '<th style="border:1px solid #000;background:#d6ecff;font-weight:bold;padding:9px 10px;text-align:left;">카테고리</th>' +
+      '<th style="border:1px solid #000;background:#d6ecff;font-weight:bold;padding:9px 10px;text-align:right;">지출액</th>' +
+      '<th style="border:1px solid #000;background:#d6ecff;font-weight:bold;padding:9px 10px;text-align:right;">상한액</th>' +
+      '<th style="border:1px solid #000;background:#d6ecff;font-weight:bold;padding:9px 10px;text-align:center;">상태</th>' +
+      '</tr></thead><tbody>' + rowsHtml +
+      '<tr>' +
+      '<td style="border:1px solid #000;padding:9px 10px;font-weight:bold;">합계</td>' +
+      '<td style="border:1px solid #000;padding:9px 10px;text-align:right;font-weight:bold;">' + formatWon(data.totalSpent) + '</td>' +
+      '<td style="border:1px solid #000;padding:9px 10px;text-align:right;font-weight:bold;">' + formatWon(data.totalCap) + '</td>' +
+      '<td style="border:1px solid #000;padding:9px 10px;"></td>' +
+      '</tr>' +
+      '</tbody></table>' +
+      '<p style="text-align:right;font-size:10px;color:#000;margin-top:16px;">출력일: ' + todayStr() + '</p>';
+
+    document.body.appendChild(wrapper);
+    return wrapper;
+  }
+
+  function exportMonthlyPDF(mk) {
+    if (!window.html2canvas || !window.jspdf) { alert('PDF 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.'); return; }
+    var node = buildReportNode(mk);
+    window.html2canvas(node, { scale: 2, backgroundColor: '#ffffff' }).then(function (canvas) {
+      document.body.removeChild(node);
+      var imgData = canvas.toDataURL('image/png');
+      var pdfDoc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+      var pageWidth = 210, pageHeight = 297, margin = 12;
+      var usableWidth = pageWidth - margin * 2;
+      var imgHeightMm = (canvas.height * usableWidth) / canvas.width;
+      if (imgHeightMm > pageHeight - margin * 2) imgHeightMm = pageHeight - margin * 2;
+      pdfDoc.addImage(imgData, 'PNG', margin, margin, usableWidth, imgHeightMm);
+      pdfDoc.save('소비내역-' + mk + '.pdf');
+    }).catch(function (err) {
+      if (node.parentNode) document.body.removeChild(node);
+      alert('PDF 생성 중 오류가 발생했습니다: ' + err.message);
+    });
   }
 
   render(); // paint immediately from local cache while Firebase connects
