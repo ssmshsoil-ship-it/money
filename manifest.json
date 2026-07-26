@@ -1,0 +1,15 @@
+{
+  "name": "가계부 저축 트래커",
+  "short_name": "저축트래커",
+  "description": "카테고리별 소비 상한과 저축 목표를 관리하는 개인 가계부",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fafaf8",
+  "theme_color": "#1baf7a",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
