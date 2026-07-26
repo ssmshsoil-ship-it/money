@@ -1,10 +1,42 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
+import {
+  getFirestore, doc, setDoc, onSnapshot, enableIndexedDbPersistence
+} from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+import {
+  getAuth, signInAnonymously, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
+
 (function () {
   'use strict';
 
-  var STORAGE_KEY = 'budgetTrackerData_v1';
+  // ---------- Firebase setup ----------
+  var firebaseConfig = {
+    apiKey: "AIzaSyBxWEMC4vl6AsRsj2dgqnH_1-Pcvuky1dQ",
+    authDomain: "money-55e41.firebaseapp.com",
+    projectId: "money-55e41",
+    storageBucket: "money-55e41.firebasestorage.app",
+    messagingSenderId: "872412983238",
+    appId: "1:872412983238:web:cdec86334a76378f570cc7"
+  };
+
+  var fbApp = initializeApp(firebaseConfig);
+  var db = getFirestore(fbApp);
+  var auth = getAuth(fbApp);
+
+  // Everyone who opens this app writes to this one shared document.
+  // Fine for "just the two of us" use - see README for how to change the doc name.
+  var HOUSEHOLD_DOC = doc(db, 'households', 'main');
+
+  try {
+    enableIndexedDbPersistence(db).catch(function () { /* multiple tabs open - ignore */ });
+  } catch (e) { /* older browser - ignore, app still works online */ }
+
+  var STORAGE_KEY = 'budgetTrackerData_v1'; // local cache only, source of truth is Firestore
   var app = document.getElementById('app');
   var currentTab = 'home';
   var currentViewMonth = monthKeyOf(new Date());
+  var isOnline = true;
+  var unsubscribeSnapshot = null;
 
   function defaultState() {
     return {
@@ -27,27 +59,72 @@
     };
   }
 
-  var state = loadState();
+  var state = loadLocalCache();
 
-  function loadState() {
+  function loadLocalCache() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return defaultState();
-      var parsed = JSON.parse(raw);
-      var def = defaultState();
-      return Object.assign({}, def, parsed);
+      return Object.assign({}, defaultState(), JSON.parse(raw));
     } catch (e) {
       return defaultState();
     }
   }
 
-  function saveState() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  function cacheLocally() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* storage full - ignore */ }
+  }
+
+  // Writes the current in-memory state up to Firestore. All connected
+  // devices (onSnapshot below) will receive the update within ~1 second,
+  // including this same device (which is how we re-render after edits).
+  function pushState() {
+    cacheLocally();
+    setDoc(HOUSEHOLD_DOC, state).catch(function (err) {
+      console.error('저장 실패(오프라인일 수 있음):', err);
+    });
   }
 
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
+
+  // ---------- Auth + realtime subscription ----------
+
+  signInAnonymously(auth).catch(function (err) {
+    console.error('로그인 실패:', err);
+    renderConnectionError();
+  });
+
+  onAuthStateChanged(auth, function (user) {
+    if (user) subscribeToHousehold();
+  });
+
+  function subscribeToHousehold() {
+    if (unsubscribeSnapshot) unsubscribeSnapshot();
+    unsubscribeSnapshot = onSnapshot(HOUSEHOLD_DOC, function (snap) {
+      isOnline = !snap.metadata.fromCache;
+      if (snap.exists()) {
+        state = Object.assign({}, defaultState(), snap.data());
+        cacheLocally();
+      } else {
+        // first time ever - seed the shared doc with defaults
+        state = defaultState();
+        setDoc(HOUSEHOLD_DOC, state);
+      }
+      render();
+    }, function (err) {
+      console.error('동기화 오류:', err);
+      isOnline = false;
+      render();
+    });
+  }
+
+  function renderConnectionError() {
+    app.innerHTML = '<div class="empty-state">Firebase 연결에 문제가 있습니다.<br>인터넷 연결을 확인하거나 잠시 후 새로고침 해주세요.</div>';
+  }
+
+  // ---------- Helpers ----------
 
   function monthKeyOf(d) {
     var y = d.getFullYear();
@@ -91,6 +168,17 @@
     return months;
   }
 
+  function todayStr() {
+    var d = new Date();
+    return monthKeyOf(d) + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
   // ---------- Rendering ----------
 
   function render() {
@@ -103,12 +191,18 @@
     else if (currentTab === 'settings') renderSettings();
   }
 
+  function syncBadge() {
+    return '<div style="text-align:right;font-size:11px;color:var(--text-muted);margin-bottom:4px;">' +
+      (isOnline ? '● 동기화됨' : '○ 오프라인 - 연결되면 자동 저장') + '</div>';
+  }
+
   function renderHome() {
     var savings = state.monthlySavings[currentViewMonth] || 0;
     var goal = state.savingsGoal;
     var savingsPct = Math.min(100, Math.round((savings / goal) * 100));
 
     var html = '';
+    html += syncBadge();
     html += '<h1>가계부 저축 트래커</h1>';
     html += '<div class="month-nav">';
     html += '<button data-action="prev-month">‹</button>';
@@ -128,7 +222,7 @@
       var pct = Math.min(100, Math.round((spent / cat.cap) * 100));
       var over = spent > cat.cap;
       html += '<div class="cat-row">';
-      html += '<div class="cat-row-top"><span>' + cat.name + '</span><span class="amt' + (over ? ' over' : '') + '">' + formatWon(spent) + ' / ' + formatWon(cat.cap) + '</span></div>';
+      html += '<div class="cat-row-top"><span>' + escapeHtml(cat.name) + '</span><span class="amt' + (over ? ' over' : '') + '">' + formatWon(spent) + ' / ' + formatWon(cat.cap) + '</span></div>';
       html += '<div class="progress-track"><div class="progress-fill' + (over ? ' over' : '') + '" style="width:' + pct + '%"></div></div>';
       html += '</div>';
     });
@@ -138,6 +232,7 @@
 
   function renderAdd() {
     var html = '';
+    html += syncBadge();
     html += '<h1>지출 추가</h1>';
     html += '<div class="card">';
     html += '<label>날짜</label>';
@@ -145,7 +240,7 @@
     html += '<label>카테고리</label>';
     html += '<div class="chip-group" id="f-cats">';
     state.categories.forEach(function (cat, i) {
-      html += '<div class="chip' + (i === 0 ? ' selected' : '') + '" data-cat="' + cat.id + '">' + cat.name + '</div>';
+      html += '<div class="chip' + (i === 0 ? ' selected' : '') + '" data-cat="' + cat.id + '">' + escapeHtml(cat.name) + '</div>';
     });
     html += '</div>';
     html += '<label>금액</label>';
@@ -164,7 +259,7 @@
       recent.forEach(function (e) {
         var cat = state.categories.find(function (c) { return c.id === e.categoryId; });
         html += '<div class="tx-row">';
-        html += '<div class="tx-main"><span class="tx-cat">' + (cat ? cat.name : '기타') + (e.memo ? ' · ' + escapeHtml(e.memo) : '') + '</span><span class="tx-date">' + e.date + '</span></div>';
+        html += '<div class="tx-main"><span class="tx-cat">' + (cat ? escapeHtml(cat.name) : '기타') + (e.memo ? ' · ' + escapeHtml(e.memo) : '') + '</span><span class="tx-date">' + e.date + '</span></div>';
         html += '<span class="tx-amt">' + formatWon(e.amount) + '</span>';
         html += '<button class="tx-del" data-action="delete-expense" data-id="' + e.id + '">×</button>';
         html += '</div>';
@@ -178,6 +273,7 @@
   function renderPlan() {
     var months = planMonthList();
     var html = '';
+    html += syncBadge();
     html += '<h1>12개월 저축 플랜</h1>';
     html += '<div class="card">';
     html += '<p class="metric-label">연간 목표</p>';
@@ -210,6 +306,7 @@
 
   function renderSettings() {
     var html = '';
+    html += syncBadge();
     html += '<h1>설정</h1>';
 
     html += '<div class="card">';
@@ -231,29 +328,18 @@
 
     html += '<div style="margin-top:1rem;"><button class="btn" data-action="save-settings">설정 저장</button></div>';
 
-    html += '<h2>데이터 백업</h2>';
+    html += '<h2>데이터 백업 (로컬 파일)</h2>';
     html += '<div class="card">';
-    html += '<p class="metric-sub">이 앱의 데이터는 이 기기의 브라우저에만 저장됩니다. 기기를 바꾸기 전에 내보내기로 백업하세요.</p>';
+    html += '<p class="metric-sub">데이터는 이제 두 분 모두에게 실시간으로 공유됩니다(Firebase). 이 백업은 만약을 위한 추가 안전장치입니다.</p>';
     html += '<div class="export-row">';
     html += '<button class="btn secondary" data-action="export-data">내보내기</button>';
     html += '<button class="btn secondary" data-action="import-data">가져오기</button>';
     html += '</div>';
     html += '<input type="file" id="import-file" accept="application/json" style="display:none;">';
-    html += '<div style="margin-top:8px;"><button class="btn danger small" data-action="reset-data">전체 초기화</button></div>';
+    html += '<div style="margin-top:8px;"><button class="btn danger small" data-action="reset-data">전체 초기화(둘 다 삭제됨)</button></div>';
     html += '</div>';
 
     app.innerHTML = html;
-  }
-
-  function todayStr() {
-    var d = new Date();
-    return monthKeyOf(d) + '-' + String(d.getDate()).padStart(2, '0');
-  }
-
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
   }
 
   // ---------- Event handling ----------
@@ -282,24 +368,25 @@
     else if (action === 'save-expense') { saveExpense(); }
     else if (action === 'delete-expense') {
       state.expenses = state.expenses.filter(function (ex) { return ex.id !== actionEl.dataset.id; });
-      saveState(); render();
+      pushState();
     }
     else if (action === 'add-category') {
       state.categories.push({ id: uid(), name: '새 카테고리', cap: 50000 });
-      saveState(); render();
+      pushState();
     }
     else if (action === 'delete-category') {
       if (confirm('이 카테고리를 삭제할까요? 관련 지출 내역은 남아있지만 홈 화면에는 더 이상 표시되지 않습니다.')) {
         state.categories = state.categories.filter(function (c) { return c.id !== actionEl.dataset.id; });
-        saveState(); render();
+        pushState();
       }
     }
     else if (action === 'save-settings') { saveSettings(); }
     else if (action === 'export-data') { exportData(); }
     else if (action === 'import-data') { document.getElementById('import-file').click(); }
     else if (action === 'reset-data') {
-      if (confirm('모든 데이터를 삭제하고 초기 상태로 되돌립니다. 계속할까요?')) {
-        state = defaultState(); saveState(); render();
+      if (confirm('모든 데이터를 삭제하고 초기 상태로 되돌립니다. 계속할까요? (두 분 모두에게 적용됩니다)')) {
+        state = defaultState();
+        pushState();
       }
     }
   });
@@ -313,9 +400,8 @@
         try {
           var imported = JSON.parse(reader.result);
           state = Object.assign({}, defaultState(), imported);
-          saveState();
+          pushState();
           alert('가져오기가 완료되었습니다.');
-          render();
         } catch (err) {
           alert('파일을 읽을 수 없습니다. 올바른 백업 파일인지 확인해주세요.');
         }
@@ -326,8 +412,7 @@
       var mk = e.target.dataset.month;
       var val = parseInt(e.target.value, 10) || 0;
       state.monthlySavings[mk] = val;
-      saveState();
-      render();
+      pushState();
     }
   });
 
@@ -342,10 +427,7 @@
       return;
     }
     state.expenses.push({ id: uid(), date: date, categoryId: categoryId, amount: amount, memo: memo });
-    saveState();
-    document.getElementById('f-amount').value = '';
-    document.getElementById('f-memo').value = '';
-    render();
+    pushState();
   }
 
   function saveSettings() {
@@ -357,9 +439,8 @@
       cat.name = row.querySelector('.s-cat-name').value.trim() || cat.name;
       cat.cap = parseInt(row.querySelector('.s-cat-cap').value, 10) || 0;
     });
-    saveState();
+    pushState();
     alert('저장되었습니다.');
-    render();
   }
 
   function exportData() {
@@ -374,5 +455,5 @@
     URL.revokeObjectURL(url);
   }
 
-  render();
+  render(); // paint immediately from local cache while Firebase connects
 })();
