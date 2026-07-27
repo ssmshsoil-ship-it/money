@@ -300,10 +300,12 @@ import {
     } else {
       html += '<div class="card" style="padding:0.4rem 1.1rem;">';
       recent.forEach(function (e) {
-        var cat = state.categories.find(function (c) { return c.id === e.categoryId; });
+        var catIndex = state.categories.findIndex(function (c) { return c.id === e.categoryId; });
+        var cat = catIndex > -1 ? state.categories[catIndex] : null;
+        var dotColor = catIndex > -1 ? categoryColor(catIndex) : '#9ca3af';
         html += '<div class="tx-row' + (e.id === editingId ? ' editing' : '') + '">';
         html += '<div class="tx-main">';
-        html += '<span class="tx-cat">' + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
+        html += '<span class="tx-cat"><span class="tx-dot" style="background:' + dotColor + ';"></span>' + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
         if (e.memo) html += '<span class="tx-memo">' + escapeHtml(e.memo) + '</span>';
         html += '<span class="tx-date">' + e.date + '</span>';
         html += '</div>';
