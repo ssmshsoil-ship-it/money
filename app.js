@@ -180,6 +180,28 @@ import {
     });
   }
 
+  var RAINBOW_COLORS = ['#e11d48', '#f97316', '#eab308', '#16a34a', '#0d9488', '#2563eb', '#4338ca', '#9333ea', '#db2777'];
+  function categoryColor(index) {
+    return RAINBOW_COLORS[index % RAINBOW_COLORS.length];
+  }
+
+  var toastTimer1 = null, toastTimer2 = null;
+  function showToast(msg) {
+    clearTimeout(toastTimer1); clearTimeout(toastTimer2);
+    var el = document.getElementById('toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'toast';
+      el.className = 'toast';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.classList.remove('show');
+    void el.offsetWidth; // force reflow so the transition restarts
+    toastTimer1 = setTimeout(function () { el.classList.add('show'); }, 10);
+    toastTimer2 = setTimeout(function () { el.classList.remove('show'); }, 1000);
+  }
+
   // ---------- Rendering ----------
 
   function render() {
@@ -198,13 +220,11 @@ import {
   }
 
   function renderHome() {
-    var savings = state.monthlySavings[currentViewMonth] || 0;
-    var goal = state.savingsGoal;
-    var savingsPct = Math.min(100, Math.round((savings / goal) * 100));
+    var data = monthlyReportData(currentViewMonth);
 
     var html = '';
     html += syncBadge();
-    html += '<h1>가계부 저축 트래커</h1>';
+    html += '<h1>가계부</h1>';
     html += '<div class="month-nav">';
     html += '<button data-action="prev-month">‹</button>';
     html += '<span class="month-label">' + monthLabel(currentViewMonth) + '</span>';
@@ -212,19 +232,19 @@ import {
     html += '</div>';
 
     html += '<div class="card">';
-    html += '<p class="metric-label">이번달 저축 목표</p>';
-    html += '<p class="metric-value">' + formatWon(savings) + ' <span class="metric-sub">/ ' + formatWon(goal) + '</span></p>';
-    html += '<div class="progress-track"><div class="progress-fill" style="width:' + savingsPct + '%"></div></div>';
+    html += '<p class="metric-label">이번달 합계소비액</p>';
+    html += '<p class="metric-value">' + formatWon(data.totalSpent) + ' <span class="metric-sub">/ 상한 ' + formatWon(data.totalCap) + '</span></p>';
     html += '</div>';
 
     html += '<h2>카테고리별 상한</h2>';
-    state.categories.forEach(function (cat) {
+    state.categories.forEach(function (cat, i) {
       var spent = getCategoryTotal(currentViewMonth, cat.id);
       var pct = Math.min(100, Math.round((spent / cat.cap) * 100));
       var over = spent > cat.cap;
+      var color = categoryColor(i);
       html += '<div class="cat-row">';
       html += '<div class="cat-row-top"><span>' + escapeHtml(cat.name) + '</span><span class="amt' + (over ? ' over' : '') + '">' + formatWon(spent) + ' / ' + formatWon(cat.cap) + '</span></div>';
-      html += '<div class="progress-track"><div class="progress-fill' + (over ? ' over' : '') + '" style="width:' + pct + '%"></div></div>';
+      html += '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%;background:' + color + ';"></div></div>';
       html += '</div>';
     });
 
@@ -260,9 +280,16 @@ import {
     html += '<input type="number" id="f-amount" placeholder="0" inputmode="numeric" value="' + (editingExpense ? editingExpense.amount : '') + '">';
     html += '<label>메모 (선택)</label>';
     html += '<input type="text" id="f-memo" placeholder="예: 더팜마트" value="' + (editingExpense ? escapeHtml(editingExpense.memo || '') : '') + '">';
-    html += '<div style="margin-top:1rem;display:flex;gap:8px;">';
-    html += '<button class="btn" data-action="save-expense">' + (editingExpense ? '수정 저장' : '저장') + '</button>';
-    if (editingExpense) html += '<button class="btn secondary" data-action="cancel-edit">취소</button>';
+    html += '<div style="margin-top:1rem;">';
+    if (editingExpense) {
+      html += '<div class="tx-edit-actions">';
+      html += '<button class="btn editing" data-action="save-expense">수정저장</button>';
+      html += '<button class="btn secondary" data-action="cancel-edit">취소</button>';
+      html += '<button class="btn danger" data-action="delete-expense" data-id="' + editingExpense.id + '">삭제</button>';
+      html += '</div>';
+    } else {
+      html += '<button class="btn" data-action="save-expense">저장</button>';
+    }
     html += '</div>';
     html += '</div>';
 
@@ -275,7 +302,11 @@ import {
       recent.forEach(function (e) {
         var cat = state.categories.find(function (c) { return c.id === e.categoryId; });
         html += '<div class="tx-row' + (e.id === editingId ? ' editing' : '') + '">';
-        html += '<div class="tx-main"><span class="tx-cat">' + (cat ? escapeHtml(cat.name) : '기타') + (e.memo ? ' · ' + escapeHtml(e.memo) : '') + '</span><span class="tx-date">' + e.date + '</span></div>';
+        html += '<div class="tx-main">';
+        html += '<span class="tx-cat">' + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
+        if (e.memo) html += '<span class="tx-memo">' + escapeHtml(e.memo) + '</span>';
+        html += '<span class="tx-date">' + e.date + '</span>';
+        html += '</div>';
         html += '<span class="tx-amt">' + formatWon(e.amount) + '</span>';
         html += '<button class="tx-edit" data-action="edit-expense" data-id="' + e.id + '">수정</button>';
         html += '<button class="tx-del" data-action="delete-expense" data-id="' + e.id + '">×</button>';
@@ -289,20 +320,29 @@ import {
 
   function renderPlan() {
     var months = planMonthList();
+    var cumTarget = 0, cumActual = 0;
+    months.forEach(function (mk) {
+      cumTarget += state.savingsGoal;
+      cumActual += (state.monthlySavings[mk] || 0);
+    });
+
     var html = '';
     html += syncBadge();
     html += '<h1>12개월 저축 플랜</h1>';
+
+    html += '<div class="card">';
+    html += '<p class="metric-label">저축누계</p>';
+    html += '<p class="metric-value">' + formatWon(cumActual) + ' <span class="metric-sub">/ ' + formatWon(cumTarget) + '</span></p>';
+    html += '</div>';
+
     html += '<div class="card">';
     html += '<p class="metric-label">연간 목표</p>';
     html += '<p class="metric-value">' + formatWon(state.savingsGoal * state.planMonths) + '</p>';
     html += '</div>';
 
     html += '<table class="plan-table"><thead><tr><th>월</th><th>목표</th><th>실제</th><th>상태</th></tr></thead><tbody>';
-    var cumTarget = 0, cumActual = 0;
     months.forEach(function (mk) {
       var actual = state.monthlySavings[mk] || 0;
-      cumTarget += state.savingsGoal;
-      cumActual += actual;
       var achieved = actual >= state.savingsGoal;
       html += '<tr>';
       html += '<td>' + monthLabel(mk) + '</td>';
@@ -312,11 +352,6 @@ import {
       html += '</tr>';
     });
     html += '</tbody></table>';
-
-    html += '<div class="card" style="margin-top:1rem;">';
-    html += '<p class="metric-label">누적 실제 저축액</p>';
-    html += '<p class="metric-value">' + formatWon(cumActual) + ' <span class="metric-sub">/ ' + formatWon(cumTarget) + '</span></p>';
-    html += '</div>';
 
     app.innerHTML = html;
   }
@@ -386,9 +421,11 @@ import {
     else if (action === 'edit-expense') { editingId = actionEl.dataset.id; render(); }
     else if (action === 'cancel-edit') { editingId = null; render(); }
     else if (action === 'delete-expense') {
+      if (!confirm('삭제할까요?')) return;
       if (actionEl.dataset.id === editingId) editingId = null;
       state.expenses = state.expenses.filter(function (ex) { return ex.id !== actionEl.dataset.id; });
       pushState();
+      showToast('삭제되었습니다');
     }
     else if (action === 'add-category') {
       state.categories.push({ id: uid(), name: '새 카테고리', cap: 50000 });
@@ -457,10 +494,13 @@ import {
         existing.memo = memo;
       }
       editingId = null;
+      pushState();
+      showToast('수정되었습니다');
     } else {
       state.expenses.push({ id: uid(), date: date, categoryId: categoryId, amount: amount, memo: memo });
+      pushState();
+      showToast('저장되었습니다');
     }
-    pushState();
   }
 
   function saveSettings() {
@@ -639,6 +679,27 @@ import {
       alert('PDF 생성 중 오류가 발생했습니다: ' + err.message);
     });
   }
+
+  // ---------- Swipe left/right to switch tabs ----------
+
+  var TAB_ORDER = ['home', 'add', 'plan', 'settings'];
+  var touchStartX = 0, touchStartY = 0;
+
+  document.body.addEventListener('touchstart', function (e) {
+    if (e.touches.length !== 1) return;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+
+  document.body.addEventListener('touchend', function (e) {
+    if (!e.changedTouches || e.changedTouches.length !== 1) return;
+    var dx = e.changedTouches[0].clientX - touchStartX;
+    var dy = e.changedTouches[0].clientY - touchStartY;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    var idx = TAB_ORDER.indexOf(currentTab);
+    if (dx < 0 && idx < TAB_ORDER.length - 1) { currentTab = TAB_ORDER[idx + 1]; render(); }
+    else if (dx > 0 && idx > 0) { currentTab = TAB_ORDER[idx - 1]; render(); }
+  }, { passive: true });
 
   render(); // paint immediately from local cache while Firebase connects
 })();
