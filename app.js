@@ -309,7 +309,6 @@ import {
         html += '</div>';
         html += '<span class="tx-amt">' + formatWon(e.amount) + '</span>';
         html += '<button class="tx-edit" data-action="edit-expense" data-id="' + e.id + '">수정</button>';
-        html += '<button class="tx-del" data-action="delete-expense" data-id="' + e.id + '">×</button>';
         html += '</div>';
       });
       html += '</div>';

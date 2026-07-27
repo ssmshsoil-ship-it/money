@@ -109,7 +109,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 /* ---- Transaction rows: clean grid layout ---- */
 .tx-row {
   display: grid;
-  grid-template-columns: 1fr auto auto auto;
+  grid-template-columns: 1fr auto auto;
   align-items: center;
   column-gap: 12px;
   row-gap: 2px;
