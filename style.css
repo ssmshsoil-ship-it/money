@@ -73,11 +73,24 @@ h2 { font-size: 15px; font-weight: 700; margin: 1.25rem 0 0.6rem; color: var(--t
 .progress-fill { height: 100%; border-radius: 4px; background: var(--accent); transition: width 0.2s; }
 .progress-fill.over { background: var(--danger); }
 
-.cat-row { margin-bottom: 12px; }
+.cat-row { margin-bottom: 12px; cursor: pointer; }
 .cat-row-top { display: flex; justify-content: space-between; font-size: 13.5px; margin-bottom: 4px; }
 .cat-row-top .amt { color: var(--text-secondary); }
 .cat-row-top .amt.over { color: var(--danger); font-weight: 700; }
 .cat-row .progress-track { height: 6px; margin-top: 0; }
+.cat-chevron { display: inline-block; width: 14px; color: var(--text-muted); font-size: 11px; }
+
+.cat-detail {
+  margin-top: 10px; padding: 2px 0 2px 22px; border-left: 2px solid var(--surface-2);
+}
+.cat-detail-row {
+  display: grid; grid-template-columns: 44px 1fr auto; column-gap: 10px;
+  font-size: 12.5px; padding: 6px 0; color: var(--text-secondary);
+}
+.cat-detail-date { color: var(--text-muted); }
+.cat-detail-memo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-detail-amt { color: var(--text); font-weight: 600; text-align: right; }
+.cat-detail-empty { font-size: 12.5px; color: var(--text-muted); padding: 6px 0; }
 
 .btn {
   display: flex; align-items: center; justify-content: center; gap: 6px;

@@ -38,6 +38,7 @@ import {
   var isOnline = true;
   var unsubscribeSnapshot = null;
   var editingId = null;
+  var expandedCategoryId = null;
 
   function defaultState() {
     return {
@@ -242,9 +243,28 @@ import {
       var pct = Math.min(100, Math.round((spent / cat.cap) * 100));
       var over = spent > cat.cap;
       var color = categoryColor(i);
-      html += '<div class="cat-row">';
-      html += '<div class="cat-row-top"><span>' + escapeHtml(cat.name) + '</span><span class="amt' + (over ? ' over' : '') + '">' + formatWon(spent) + ' / ' + formatWon(cat.cap) + '</span></div>';
+      var isOpen = expandedCategoryId === cat.id;
+      html += '<div class="cat-row' + (isOpen ? ' open' : '') + '" data-action="toggle-category" data-id="' + cat.id + '">';
+      html += '<div class="cat-row-top"><span><span class="cat-chevron">' + (isOpen ? '▾' : '▸') + '</span>' + escapeHtml(cat.name) + '</span><span class="amt' + (over ? ' over' : '') + '">' + formatWon(spent) + ' / ' + formatWon(cat.cap) + '</span></div>';
       html += '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%;background:' + color + ';"></div></div>';
+      if (isOpen) {
+        var items = getExpensesForMonth(currentViewMonth)
+          .filter(function (e) { return e.categoryId === cat.id; })
+          .sort(function (a, b) { return b.date.localeCompare(a.date); });
+        html += '<div class="cat-detail">';
+        if (items.length === 0) {
+          html += '<div class="cat-detail-empty">이 달에는 내역이 없습니다.</div>';
+        } else {
+          items.forEach(function (e) {
+            html += '<div class="cat-detail-row">';
+            html += '<span class="cat-detail-date">' + e.date.slice(5).replace('-', '/') + '</span>';
+            html += '<span class="cat-detail-memo">' + (e.memo ? escapeHtml(e.memo) : '') + '</span>';
+            html += '<span class="cat-detail-amt">' + formatWon(e.amount) + '</span>';
+            html += '</div>';
+          });
+        }
+        html += '</div>';
+      }
       html += '</div>';
     });
 
@@ -418,6 +438,11 @@ import {
 
     if (action === 'prev-month') { currentViewMonth = shiftMonth(currentViewMonth, -1); render(); }
     else if (action === 'next-month') { currentViewMonth = shiftMonth(currentViewMonth, 1); render(); }
+    else if (action === 'toggle-category') {
+      var catId = actionEl.dataset.id;
+      expandedCategoryId = (expandedCategoryId === catId) ? null : catId;
+      render();
+    }
     else if (action === 'save-expense') { saveExpense(); }
     else if (action === 'edit-expense') { editingId = actionEl.dataset.id; render(); }
     else if (action === 'cancel-edit') { editingId = null; render(); }
