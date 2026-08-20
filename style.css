@@ -75,8 +75,11 @@ h2 { font-size: 15px; font-weight: 700; margin: 1.25rem 0 0.6rem; color: var(--t
 
 .cat-row { margin-bottom: 12px; cursor: pointer; }
 .cat-row-top { display: flex; justify-content: space-between; font-size: 13.5px; margin-bottom: 4px; }
-.cat-row-top .amt { color: var(--text-secondary); }
-.cat-row-top .amt.over { color: var(--danger); font-weight: 700; }
+.amt-spent { color: var(--text); font-weight: 700; }
+.amt-spent.over { color: var(--danger); }
+.amt-sep { color: var(--text-muted); }
+.amt-cap { color: var(--text-muted); }
+.cat-over-badge { color: var(--danger); font-weight: 700; font-size: 12px; }
 .cat-row .progress-track { height: 6px; margin-top: 0; }
 .cat-chevron { display: inline-block; width: 14px; color: var(--text-muted); font-size: 11px; }
 

@@ -255,7 +255,8 @@ import {
       var color = categoryColor(i);
       var isOpen = expandedCategoryId === cat.id;
       html += '<div class="cat-row' + (isOpen ? ' open' : '') + '" data-action="toggle-category" data-id="' + cat.id + '">';
-      html += '<div class="cat-row-top"><span><span class="cat-chevron">' + (isOpen ? '▾' : '▸') + '</span>' + escapeHtml(cat.name) + '</span><span class="amt' + (over ? ' over' : '') + '">' + formatWon(spent) + ' / ' + formatWon(cat.cap) + '</span></div>';
+      var overAmt = over ? ' <span class="cat-over-badge">(+' + formatWon(spent - cat.cap) + ')</span>' : '';
+      html += '<div class="cat-row-top"><span><span class="cat-chevron">' + (isOpen ? '▾' : '▸') + '</span>' + escapeHtml(cat.name) + overAmt + '</span><span class="amt"><span class="amt-spent' + (over ? ' over' : '') + '">' + formatWon(spent) + '</span> <span class="amt-sep">/</span> <span class="amt-cap">' + formatWon(cat.cap) + '</span></span></div>';
       html += '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%;background:' + color + ';"></div></div>';
       if (isOpen) {
         var items = getExpensesForMonth(currentViewMonth)
