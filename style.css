@@ -112,10 +112,12 @@ input, select, textarea {
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
-.chip-group { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip-group { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
 .chip {
-  padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border);
-  font-size: 13.5px; background: var(--surface); cursor: pointer; color: var(--text);
+  padding: 9px 4px; border-radius: 9px; border: 1px solid var(--border);
+  font-size: 12.5px; line-height: 1.25; background: var(--surface); cursor: pointer; color: var(--text);
+  text-align: center; display: flex; align-items: center; justify-content: center;
+  min-height: 40px; word-break: keep-all;
 }
 .chip.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
 
