@@ -216,8 +216,12 @@ import {
   }
 
   function syncBadge() {
-    return '<div style="text-align:right;font-size:11px;color:var(--text-muted);margin-bottom:4px;">' +
-      (isOnline ? '● 동기화됨' : '○ 오프라인 - 연결되면 자동 저장') + '</div>';
+    return '<div class="sync-bar">' +
+      '<span>' + (isOnline ? '● 동기화됨' : '○ 오프라인 - 연결되면 자동 저장') + '</span>' +
+      '<button class="refresh-btn" data-action="refresh-app" aria-label="새로고침">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">' +
+      '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>' +
+      '</button></div>';
   }
 
   function renderHome() {
@@ -438,6 +442,7 @@ import {
 
     if (action === 'prev-month') { currentViewMonth = shiftMonth(currentViewMonth, -1); render(); }
     else if (action === 'next-month') { currentViewMonth = shiftMonth(currentViewMonth, 1); render(); }
+    else if (action === 'refresh-app') { window.location.reload(); }
     else if (action === 'toggle-category') {
       var catId = actionEl.dataset.id;
       expandedCategoryId = (expandedCategoryId === catId) ? null : catId;
