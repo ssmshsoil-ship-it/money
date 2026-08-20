@@ -185,6 +185,12 @@ import {
   function categoryColor(index) {
     return RAINBOW_COLORS[index % RAINBOW_COLORS.length];
   }
+  function hexToRgba(hex, alpha) {
+    var r = parseInt(hex.slice(1, 3), 16);
+    var g = parseInt(hex.slice(3, 5), 16);
+    var b = parseInt(hex.slice(5, 7), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+  }
 
   var toastTimer1 = null, toastTimer2 = null;
   function showToast(msg) {
@@ -297,7 +303,11 @@ import {
     html += '<div class="chip-group" id="f-cats">';
     state.categories.forEach(function (cat, i) {
       var isSelected = editingExpense ? cat.id === editingExpense.categoryId : i === 0;
-      html += '<div class="chip' + (isSelected ? ' selected' : '') + '" data-cat="' + cat.id + '">' + escapeHtml(cat.name) + '</div>';
+      var color = categoryColor(i);
+      var style = isSelected
+        ? 'background:' + color + ';border-color:' + color + ';color:#fff;'
+        : 'background:' + hexToRgba(color, 0.14) + ';border-color:' + hexToRgba(color, 0.35) + ';color:var(--text);';
+      html += '<div class="chip' + (isSelected ? ' selected' : '') + '" data-cat="' + cat.id + '" style="' + style + '">' + escapeHtml(cat.name) + '</div>';
     });
     html += '</div>';
     html += '<label>금액</label>';
@@ -431,8 +441,20 @@ import {
   app.addEventListener('click', function (e) {
     var chip = e.target.closest('.chip');
     if (chip) {
-      document.querySelectorAll('#f-cats .chip').forEach(function (c) { c.classList.remove('selected'); });
+      var chips = document.querySelectorAll('#f-cats .chip');
+      chips.forEach(function (c, idx) {
+        var color = categoryColor(idx);
+        c.classList.remove('selected');
+        c.style.background = hexToRgba(color, 0.14);
+        c.style.borderColor = hexToRgba(color, 0.35);
+        c.style.color = 'var(--text)';
+      });
+      var clickedIdx = Array.prototype.indexOf.call(chips, chip);
+      var clickedColor = categoryColor(clickedIdx);
       chip.classList.add('selected');
+      chip.style.background = clickedColor;
+      chip.style.borderColor = clickedColor;
+      chip.style.color = '#fff';
       return;
     }
 

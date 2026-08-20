@@ -197,11 +197,11 @@ table.plan-table input {
   font-size: 11px; color: var(--text-muted); margin-bottom: 4px;
 }
 .refresh-btn {
-  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  background: none; border: none; color: #15803d; cursor: pointer;
   padding: 3px; display: flex; align-items: center; justify-content: center;
   border-radius: 6px;
 }
-.refresh-btn:active { background: var(--surface-2); color: var(--accent); }
+.refresh-btn:active { background: var(--surface-2); color: #0f5c2c; }
 
 .toast {
   position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%) translateY(8px);
