@@ -33,33 +33,57 @@ import {
 
   var STORAGE_KEY = 'budgetTrackerData_v1'; // local cache only, source of truth is Firestore
   var app = document.getElementById('app');
-  var currentTab = 'home';
   var currentViewMonth = monthKeyOf(new Date());
   var isOnline = true;
   var unsubscribeSnapshot = null;
-  var editingId = null;
-  var expandedCategoryId = null;
-  var modalStack = []; // e.g. ['menu'] or ['menu','scheduler'] - drives back-button navigation
   var searchQuery = '';
-  var editingScheduleId = null;
 
-  function currentModalView() {
-    return modalStack.length ? modalStack[modalStack.length - 1] : null;
+  // ---------- Unified navigation stack ----------
+  // navStack[0] is always the root (home tab, nothing open). Every deeper
+  // screen (a different tab, a modal, an edit form, an expanded category)
+  // is one more entry. The physical/PWA back button pops exactly one entry
+  // at a time; popping past the root lets the browser handle the exit.
+  var navStack = [{ tab: 'home', modal: null, editingId: null, editingScheduleId: null, expandedCategoryId: null }];
+
+  function currentNav() { return navStack[navStack.length - 1]; }
+  function currentTabGet() { return currentNav().tab; }
+  function currentModalView() { return currentNav().modal; }
+
+  function pushNav(partial) {
+    var next = Object.assign({}, currentNav(), partial);
+    navStack.push(next);
+    try { history.pushState({ depth: navStack.length }, ''); } catch (e) { /* ignore */ }
+    applyNav(next);
   }
-  function pushModal(name) {
-    modalStack.push(name);
-    try { history.pushState({ modalDepth: modalStack.length }, ''); } catch (e) { /* ignore */ }
+  function goBack() {
+    try { history.back(); } catch (e) { if (navStack.length > 1) { navStack.pop(); applyNav(currentNav()); } }
+  }
+  function replaceNav(partial) {
+    var next = Object.assign({}, currentNav(), partial);
+    navStack[navStack.length - 1] = next;
+    try { history.replaceState({ depth: navStack.length }, ''); } catch (e) { /* ignore */ }
+    applyNav(next);
+  }
+  function applyNav(nav) {
+    currentTab = nav.tab;
+    editingId = nav.editingId;
+    editingScheduleId = nav.editingScheduleId;
+    expandedCategoryId = nav.expandedCategoryId;
     render();
-  }
-  function closeModal() {
-    try { history.back(); } catch (e) { modalStack.pop(); render(); }
   }
 
   window.addEventListener('popstate', function () {
-    if (modalStack.length) { modalStack.pop(); render(); return; }
-    if (editingScheduleId !== null) { editingScheduleId = null; render(); return; }
-    if (editingId) { editingId = null; render(); return; }
+    if (navStack.length > 1) {
+      navStack.pop();
+      applyNav(currentNav());
+    }
+    // already at the root (home, nothing open): let the browser/OS handle the exit
   });
+
+  var currentTab = 'home';
+  var editingId = null;
+  var expandedCategoryId = null;
+  var editingScheduleId = null;
 
   function defaultState() {
     return {
@@ -79,7 +103,8 @@ import {
       ],
       expenses: [],
       monthlySavings: {},
-      schedules: []
+      schedules: [],
+      trash: []
     };
   }
 
@@ -131,6 +156,7 @@ import {
       if (snap.exists()) {
         state = Object.assign({}, defaultState(), snap.data());
         cacheLocally();
+        purgeOldTrash();
       } else {
         // first time ever - seed the shared doc with defaults
         state = defaultState();
@@ -142,6 +168,17 @@ import {
       isOnline = false;
       render();
     });
+  }
+
+  function purgeOldTrash() {
+    var now = new Date();
+    var before = state.trash.length;
+    state.trash = state.trash.filter(function (t) {
+      var deleted = new Date(t.deletedAt);
+      var days = Math.floor((now - deleted) / 86400000);
+      return days < 10;
+    });
+    if (state.trash.length !== before) pushState();
   }
 
   function renderConnectionError() {
@@ -280,6 +317,7 @@ import {
     else if (view === 'notifications') inner = renderNotificationsModal();
     else if (view === 'menu') inner = renderMenuModal();
     else if (view === 'scheduler') inner = renderSchedulerModal();
+    else if (view === 'trash') inner = renderTrashModal();
     root.innerHTML = '<div class="modal-overlay">' + inner + '</div>';
     if (view === 'search') {
       var input = document.getElementById('search-input');
@@ -349,12 +387,16 @@ import {
   }
 
   function renderMenuModal() {
+    var trashCount = state.trash.length;
     var html = '<div class="modal-sheet menu-sheet">';
     html += '<div class="modal-header"><h2 class="modal-title">메뉴</h2><button class="modal-close" data-action="close-modal">✕</button></div>';
     html += '<div class="menu-list">';
     html += '<button class="menu-item" data-action="open-scheduler">';
     html += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>';
     html += '<span>스케줄러</span></button>';
+    html += '<button class="menu-item" data-action="open-trash">';
+    html += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V4h6v3M6 7l1 13a2 2 0 002 2h6a2 2 0 002-2l1-13"/></svg>';
+    html += '<span>휴지통' + (trashCount > 0 ? ' (' + trashCount + ')' : '') + '</span></button>';
     html += '</div></div>';
     return html;
   }
@@ -368,7 +410,8 @@ import {
     html += '<label>제목</label><input type="text" id="sch-title" placeholder="예: 카드값 결제일" value="' + (editing ? escapeHtml(editing.title) : '') + '">';
     html += '<label>메모 (선택)</label><input type="text" id="sch-memo" value="' + (editing ? escapeHtml(editing.memo || '') : '') + '">';
     html += '<div style="margin-top:12px;display:flex;gap:8px;">';
-    html += '<button class="btn" data-action="save-schedule">' + (editing ? '수정저장' : '등록') + '</button>';
+    html += '<button class="btn' + (editing ? ' editing' : '') + '" data-action="save-schedule">' + (editing ? '수정저장' : '등록') + '</button>';
+    if (editing) html += '<button class="btn secondary" data-action="cancel-schedule-edit">취소</button>';
     if (editing) html += '<button class="btn danger" data-action="delete-schedule" data-id="' + editing.id + '">삭제</button>';
     html += '</div>';
     html += '<h2 style="margin-top:1.2rem;">등록된 일정</h2>';
@@ -383,6 +426,39 @@ import {
         html += '<span class="tx-date">' + s.date + '</span></div>';
         html += '<button class="tx-edit" data-action="edit-schedule" data-id="' + s.id + '">수정</button>';
         html += '</div>';
+      });
+    }
+    html += '</div></div>';
+    return html;
+  }
+
+  function renderTrashModal() {
+    var sorted = state.trash.slice().sort(function (a, b) { return b.deletedAt.localeCompare(a.deletedAt); });
+    var html = '<div class="modal-sheet">';
+    html += '<div class="modal-header"><h2 class="modal-title">휴지통</h2><button class="modal-close" data-action="close-modal">✕</button></div>';
+    html += '<p class="metric-sub" style="margin:-4px 0 10px;">삭제 후 10일이 지나면 자동으로 완전히 삭제됩니다.</p>';
+    if (sorted.length > 0) {
+      html += '<button class="btn danger small" data-action="empty-trash" style="margin-bottom:10px;">휴지통 비우기</button>';
+    }
+    html += '<div class="modal-body">';
+    if (sorted.length === 0) {
+      html += '<div class="empty-state">휴지통이 비어 있습니다.</div>';
+    } else {
+      var now = new Date();
+      sorted.forEach(function (t) {
+        var idx = state.categories.findIndex(function (c) { return c.id === t.categoryId; });
+        var cat = idx > -1 ? state.categories[idx] : null;
+        var daysLeft = 10 - Math.floor((now - new Date(t.deletedAt)) / 86400000);
+        html += '<div class="trash-row">';
+        html += '<div class="tx-main"><span class="tx-cat">' + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
+        if (t.memo) html += '<span class="tx-memo">' + escapeHtml(t.memo) + '</span>';
+        html += '<span class="tx-date">' + t.date + ' · ' + formatWon(t.amount) + '</span>';
+        html += '<span class="trash-days">' + Math.max(daysLeft, 0) + '일 후 자동삭제</span>';
+        html += '</div>';
+        html += '<div class="trash-actions">';
+        html += '<button class="btn secondary small" data-action="restore-expense" data-id="' + t.id + '">복원</button>';
+        html += '<button class="tx-del" data-action="delete-trash-item" data-id="' + t.id + '">×</button>';
+        html += '</div></div>';
       });
     }
     html += '</div></div>';
@@ -590,13 +666,13 @@ import {
   document.getElementById('tabbar').addEventListener('click', function (e) {
     var btn = e.target.closest('.tab-btn');
     if (!btn) return;
-    currentTab = btn.dataset.tab;
-    render();
+    if (btn.dataset.tab === currentTab) return;
+    pushNav({ tab: btn.dataset.tab, modal: null, editingId: null, editingScheduleId: null, expandedCategoryId: null });
   });
 
   document.body.addEventListener('click', function (e) {
     if (e.target.id === 'modalRoot' || e.target.classList.contains('modal-overlay')) {
-      closeModal();
+      goBack();
       return;
     }
 
@@ -628,22 +704,26 @@ import {
     else if (action === 'refresh-app') { window.location.reload(); }
     else if (action === 'toggle-category') {
       var catId = actionEl.dataset.id;
-      expandedCategoryId = (expandedCategoryId === catId) ? null : catId;
-      render();
+      if (expandedCategoryId === catId) goBack();
+      else if (expandedCategoryId) replaceNav({ expandedCategoryId: catId });
+      else pushNav({ expandedCategoryId: catId });
     }
     else if (action === 'save-expense') { saveExpense(); }
-    else if (action === 'edit-expense') {
-      editingId = actionEl.dataset.id;
-      try { history.pushState({ editing: true }, ''); } catch (err) { /* ignore */ }
-      render();
-    }
-    else if (action === 'cancel-edit') { closeModal(); }
+    else if (action === 'edit-expense') { pushNav({ editingId: actionEl.dataset.id }); }
+    else if (action === 'cancel-edit') { goBack(); }
     else if (action === 'delete-expense') {
-      if (!confirm('삭제할까요?')) return;
-      if (actionEl.dataset.id === editingId) editingId = null;
-      state.expenses = state.expenses.filter(function (ex) { return ex.id !== actionEl.dataset.id; });
+      if (!confirm('삭제할까요? (10일간 휴지통에 보관됩니다)')) return;
+      var idToDelete = actionEl.dataset.id;
+      var wasEditing = idToDelete === editingId;
+      var idx = state.expenses.findIndex(function (ex) { return ex.id === idToDelete; });
+      if (idx > -1) {
+        var removed = state.expenses.splice(idx, 1)[0];
+        removed.deletedAt = new Date().toISOString();
+        state.trash.push(removed);
+      }
       pushState();
-      showToast('삭제되었습니다');
+      showToast('휴지통으로 이동했습니다');
+      if (wasEditing) goBack();
     }
     else if (action === 'add-category') {
       state.categories.push({ id: uid(), name: '새 카테고리', cap: 50000 });
@@ -666,18 +746,44 @@ import {
         pushState();
       }
     }
-    else if (action === 'open-search') { searchQuery = ''; pushModal('search'); }
-    else if (action === 'open-notifications') { pushModal('notifications'); }
-    else if (action === 'open-menu') { pushModal('menu'); }
-    else if (action === 'open-scheduler') { editingScheduleId = null; pushModal('scheduler'); }
-    else if (action === 'close-modal') { closeModal(); }
-    else if (action === 'edit-schedule') { editingScheduleId = actionEl.dataset.id; render(); }
+    else if (action === 'open-search') { searchQuery = ''; pushNav({ modal: 'search' }); }
+    else if (action === 'open-notifications') { pushNav({ modal: 'notifications' }); }
+    else if (action === 'open-menu') { pushNav({ modal: 'menu' }); }
+    else if (action === 'open-scheduler') { pushNav({ modal: 'scheduler', editingScheduleId: null }); }
+    else if (action === 'open-trash') { pushNav({ modal: 'trash' }); }
+    else if (action === 'close-modal') { goBack(); }
+    else if (action === 'edit-schedule') { pushNav({ editingScheduleId: actionEl.dataset.id }); }
+    else if (action === 'cancel-schedule-edit') { goBack(); }
     else if (action === 'save-schedule') { saveSchedule(); }
     else if (action === 'delete-schedule') {
       if (!confirm('이 일정을 삭제할까요?')) return;
+      var wasEditingSchedule = actionEl.dataset.id === editingScheduleId;
       state.schedules = state.schedules.filter(function (s) { return s.id !== actionEl.dataset.id; });
-      editingScheduleId = null;
       pushState();
+      if (wasEditingSchedule) goBack();
+    }
+    else if (action === 'restore-expense') {
+      var tid = actionEl.dataset.id;
+      var tidx = state.trash.findIndex(function (t) { return t.id === tid; });
+      if (tidx > -1) {
+        var restored = state.trash.splice(tidx, 1)[0];
+        delete restored.deletedAt;
+        state.expenses.push(restored);
+        pushState();
+        showToast('복원되었습니다');
+      }
+    }
+    else if (action === 'delete-trash-item') {
+      if (!confirm('휴지통에서 완전히 삭제할까요? 복구할 수 없습니다.')) return;
+      state.trash = state.trash.filter(function (t) { return t.id !== actionEl.dataset.id; });
+      pushState();
+    }
+    else if (action === 'empty-trash') {
+      if (state.trash.length === 0) return;
+      if (!confirm('휴지통을 비우면 복구할 수 없습니다. 계속할까요?')) return;
+      state.trash = [];
+      pushState();
+      showToast('휴지통을 비웠습니다');
     }
   });
 
@@ -731,9 +837,9 @@ import {
         existing.amount = amount;
         existing.memo = memo;
       }
-      editingId = null;
       pushState();
       showToast('수정되었습니다');
+      goBack();
     } else {
       state.expenses.push({ id: uid(), date: date, categoryId: categoryId, amount: amount, memo: memo });
       pushState();
@@ -756,9 +862,9 @@ import {
         existing.title = title;
         existing.memo = memo;
       }
-      editingScheduleId = null;
       pushState();
       showToast('일정이 수정되었습니다');
+      goBack();
     } else {
       state.schedules.push({ id: uid(), date: date, title: title, memo: memo });
       pushState();
@@ -955,7 +1061,7 @@ import {
   }, { passive: true });
 
   document.body.addEventListener('touchend', function (e) {
-    if (modalStack.length) return;
+    if (currentModalView()) return;
     if (!e.changedTouches || e.changedTouches.length !== 1) return;
     var dx = e.changedTouches[0].clientX - touchStartX;
     var dy = e.changedTouches[0].clientY - touchStartY;

@@ -114,6 +114,14 @@ h2 { font-size: 15px; font-weight: 700; margin: 1.25rem 0 0.6rem; color: var(--t
 .menu-item:active { background: var(--surface-2); }
 .menu-item svg { width: 20px; height: 20px; color: var(--accent); }
 
+.trash-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 11px 0; border-bottom: 0.5px solid var(--border);
+}
+.trash-row:last-child { border-bottom: none; }
+.trash-days { font-size: 11px; color: var(--danger); }
+.trash-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+
 .month-nav {
   display: flex;
   align-items: center;
