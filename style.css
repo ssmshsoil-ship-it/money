@@ -42,6 +42,78 @@ body {
 h1 { font-size: 21px; font-weight: 700; margin: 0.25rem 0 1rem; }
 h2 { font-size: 15px; font-weight: 700; margin: 1.25rem 0 0.6rem; color: var(--text-secondary); }
 
+/* ---- Top app bar ---- */
+.topbar {
+  display: grid; grid-template-columns: auto 1fr auto;
+  align-items: center; column-gap: 8px; margin-bottom: 0.9rem;
+}
+.topbar-title { font-size: 19px; font-weight: 700; margin: 0; text-align: center; }
+.topbar-actions { display: flex; align-items: center; gap: 2px; justify-self: end; }
+.topbar-icon-btn {
+  background: none; border: none; color: var(--text-secondary); cursor: pointer;
+  padding: 6px; display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; position: relative;
+}
+.topbar-icon-btn svg { width: 21px; height: 21px; }
+.topbar-icon-btn:active { background: var(--surface-2); }
+.sync-dot {
+  display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #15803d;
+}
+.sync-dot.offline { background: var(--text-muted); }
+.bell-btn { position: relative; }
+.bell-badge {
+  position: absolute; top: 2px; right: 2px; background: var(--danger); color: #fff;
+  font-size: 9.5px; font-weight: 700; line-height: 1; border-radius: 999px;
+  min-width: 15px; height: 15px; display: flex; align-items: center; justify-content: center;
+  padding: 0 3px;
+}
+
+/* ---- Hamburger button (fixed, bottom-left, above tab bar) ---- */
+.hamburger-btn {
+  position: fixed; left: 14px; bottom: calc(72px + env(safe-area-inset-bottom));
+  width: 44px; height: 44px; border-radius: 50%; border: none;
+  background: var(--surface); color: var(--text); box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+  display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 500;
+}
+.hamburger-btn svg { width: 20px; height: 20px; }
+
+/* ---- Modal overlay / sheet ---- */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.42);
+  display: flex; align-items: flex-end; justify-content: center; z-index: 900;
+}
+.modal-sheet {
+  background: var(--surface); width: 100%; max-width: 480px;
+  border-radius: 18px 18px 0 0; padding: 1rem 1.1rem calc(1.2rem + env(safe-area-inset-bottom));
+  max-height: 82vh; overflow-y: auto;
+}
+.modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.8rem; }
+.modal-title { font-size: 17px; font-weight: 700; margin: 0; }
+.modal-close {
+  background: var(--surface-2); border: none; color: var(--text-secondary);
+  width: 30px; height: 30px; border-radius: 50%; font-size: 14px; cursor: pointer;
+}
+.modal-body { margin-top: 4px; }
+
+.notif-row {
+  display: grid; grid-template-columns: 48px 1fr; column-gap: 10px;
+  padding: 10px 0; border-bottom: 0.5px solid var(--border); font-size: 13.5px;
+}
+.notif-row:last-child { border-bottom: none; }
+.notif-date { color: var(--accent); font-weight: 700; font-size: 12.5px; }
+.notif-main { display: flex; flex-direction: column; gap: 2px; }
+.notif-title { font-weight: 600; }
+.notif-memo { font-size: 12px; color: var(--text-secondary); }
+
+.menu-list { display: flex; flex-direction: column; gap: 4px; }
+.menu-item {
+  display: flex; align-items: center; gap: 12px; padding: 13px 8px;
+  background: none; border: none; font-size: 15px; color: var(--text);
+  cursor: pointer; text-align: left; border-radius: 10px; font-family: inherit;
+}
+.menu-item:active { background: var(--surface-2); }
+.menu-item svg { width: 20px; height: 20px; color: var(--accent); }
+
 .month-nav {
   display: flex;
   align-items: center;
@@ -195,17 +267,6 @@ table.plan-table input {
 .export-row .btn { flex: 1; }
 
 /* ---- Toast ---- */
-.sync-bar {
-  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
-  font-size: 11px; color: var(--text-muted); margin-bottom: 4px;
-}
-.refresh-btn {
-  background: none; border: none; color: #15803d; cursor: pointer;
-  padding: 3px; display: flex; align-items: center; justify-content: center;
-  border-radius: 6px;
-}
-.refresh-btn:active { background: var(--surface-2); color: #0f5c2c; }
-
 .toast {
   position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%) translateY(8px);
   background: #14161a; color: #fff; font-size: 13.5px; font-weight: 600;

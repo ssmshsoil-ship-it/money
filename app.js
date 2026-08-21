@@ -39,6 +39,27 @@ import {
   var unsubscribeSnapshot = null;
   var editingId = null;
   var expandedCategoryId = null;
+  var modalStack = []; // e.g. ['menu'] or ['menu','scheduler'] - drives back-button navigation
+  var searchQuery = '';
+  var editingScheduleId = null;
+
+  function currentModalView() {
+    return modalStack.length ? modalStack[modalStack.length - 1] : null;
+  }
+  function pushModal(name) {
+    modalStack.push(name);
+    try { history.pushState({ modalDepth: modalStack.length }, ''); } catch (e) { /* ignore */ }
+    render();
+  }
+  function closeModal() {
+    try { history.back(); } catch (e) { modalStack.pop(); render(); }
+  }
+
+  window.addEventListener('popstate', function () {
+    if (modalStack.length) { modalStack.pop(); render(); return; }
+    if (editingScheduleId !== null) { editingScheduleId = null; render(); return; }
+    if (editingId) { editingId = null; render(); return; }
+  });
 
   function defaultState() {
     return {
@@ -57,7 +78,8 @@ import {
         { id: 'leisure', name: '레저/여가', cap: 8000 }
       ],
       expenses: [],
-      monthlySavings: {}
+      monthlySavings: {},
+      schedules: []
     };
   }
 
@@ -219,23 +241,159 @@ import {
     else if (currentTab === 'add') renderAdd();
     else if (currentTab === 'plan') renderPlan();
     else if (currentTab === 'settings') renderSettings();
+    renderModal();
   }
 
-  function syncBadge() {
-    return '<div class="sync-bar">' +
-      '<span>' + (isOnline ? '● 동기화됨' : '○ 오프라인 - 연결되면 자동 저장') + '</span>' +
-      '<button class="refresh-btn" data-action="refresh-app" aria-label="새로고침">' +
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">' +
-      '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>' +
-      '</button></div>';
+  function upcomingSchedules() {
+    var today = todayStr();
+    return state.schedules
+      .filter(function (s) { return s.date >= today; })
+      .sort(function (a, b) { return a.date.localeCompare(b.date); });
+  }
+
+  function topBar(title) {
+    var badgeCount = upcomingSchedules().length;
+    var badge = badgeCount > 0 ? '<span class="bell-badge">' + (badgeCount > 9 ? '9+' : badgeCount) + '</span>' : '';
+    return '<div class="topbar">' +
+      '<button class="topbar-icon-btn" data-action="refresh-app" aria-label="새로고침 (' + (isOnline ? '동기화됨' : '오프라인') + ')">' +
+      '<span class="sync-dot' + (isOnline ? '' : ' offline') + '"></span>' +
+      '</button>' +
+      '<h1 class="topbar-title">' + escapeHtml(title) + '</h1>' +
+      '<div class="topbar-actions">' +
+      '<button class="topbar-icon-btn" data-action="open-search" aria-label="검색">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>' +
+      '</button>' +
+      '<button class="topbar-icon-btn bell-btn" data-action="open-notifications" aria-label="알림">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>' +
+      badge +
+      '</button>' +
+      '</div>' +
+      '</div>';
+  }
+
+  function renderModal() {
+    var root = document.getElementById('modalRoot');
+    var view = currentModalView();
+    if (!view) { root.innerHTML = ''; return; }
+    var inner = '';
+    if (view === 'search') inner = renderSearchModal();
+    else if (view === 'notifications') inner = renderNotificationsModal();
+    else if (view === 'menu') inner = renderMenuModal();
+    else if (view === 'scheduler') inner = renderSchedulerModal();
+    root.innerHTML = '<div class="modal-overlay">' + inner + '</div>';
+    if (view === 'search') {
+      var input = document.getElementById('search-input');
+      if (input) {
+        input.focus();
+        var len = input.value.length;
+        input.setSelectionRange(len, len);
+      }
+    }
+  }
+
+  function renderSearchModal() {
+    var q = searchQuery.trim().toLowerCase();
+    var results = [];
+    if (q) {
+      results = state.expenses.filter(function (e) {
+        var cat = state.categories.find(function (c) { return c.id === e.categoryId; });
+        var hay = ((cat ? cat.name : '') + ' ' + (e.memo || '') + ' ' + e.date).toLowerCase();
+        return hay.indexOf(q) > -1;
+      }).sort(function (a, b) { return b.date.localeCompare(a.date); }).slice(0, 50);
+    }
+    var html = '<div class="modal-sheet">';
+    html += '<div class="modal-header"><h2 class="modal-title">검색</h2><button class="modal-close" data-action="close-modal">✕</button></div>';
+    html += '<input type="text" id="search-input" placeholder="카테고리, 메모로 검색" value="' + escapeHtml(searchQuery) + '">';
+    html += '<div class="modal-body">';
+    if (!q) {
+      html += '<div class="empty-state">검색어를 입력해보세요.</div>';
+    } else if (results.length === 0) {
+      html += '<div class="empty-state">일치하는 내역이 없습니다.</div>';
+    } else {
+      results.forEach(function (e) {
+        var idx = state.categories.findIndex(function (c) { return c.id === e.categoryId; });
+        var cat = idx > -1 ? state.categories[idx] : null;
+        var dotColor = idx > -1 ? categoryColor(idx) : '#9ca3af';
+        html += '<div class="tx-row" style="grid-template-columns:1fr auto;">';
+        html += '<div class="tx-main"><span class="tx-cat"><span class="tx-dot" style="background:' + dotColor + ';"></span>' + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
+        if (e.memo) html += '<span class="tx-memo">' + escapeHtml(e.memo) + '</span>';
+        html += '<span class="tx-date">' + e.date + '</span></div>';
+        html += '<span class="tx-amt">' + formatWon(e.amount) + '</span>';
+        html += '</div>';
+      });
+    }
+    html += '</div></div>';
+    return html;
+  }
+
+  function renderNotificationsModal() {
+    var items = upcomingSchedules();
+    var html = '<div class="modal-sheet">';
+    html += '<div class="modal-header"><h2 class="modal-title">알림</h2><button class="modal-close" data-action="close-modal">✕</button></div>';
+    html += '<div class="modal-body">';
+    if (items.length === 0) {
+      html += '<div class="empty-state">예정된 일정이 없습니다.</div>';
+    } else {
+      items.forEach(function (s) {
+        html += '<div class="notif-row">';
+        html += '<span class="notif-date">' + s.date.slice(5).replace('-', '/') + '</span>';
+        html += '<div class="notif-main"><span class="notif-title">' + escapeHtml(s.title) + '</span>';
+        if (s.memo) html += '<span class="notif-memo">' + escapeHtml(s.memo) + '</span>';
+        html += '</div></div>';
+      });
+    }
+    html += '</div>';
+    html += '<button class="btn secondary" style="margin-top:12px;" data-action="open-scheduler">일정 관리하기</button>';
+    html += '</div>';
+    return html;
+  }
+
+  function renderMenuModal() {
+    var html = '<div class="modal-sheet menu-sheet">';
+    html += '<div class="modal-header"><h2 class="modal-title">메뉴</h2><button class="modal-close" data-action="close-modal">✕</button></div>';
+    html += '<div class="menu-list">';
+    html += '<button class="menu-item" data-action="open-scheduler">';
+    html += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>';
+    html += '<span>스케줄러</span></button>';
+    html += '</div></div>';
+    return html;
+  }
+
+  function renderSchedulerModal() {
+    var editing = editingScheduleId ? state.schedules.find(function (s) { return s.id === editingScheduleId; }) : null;
+    var html = '<div class="modal-sheet">';
+    html += '<div class="modal-header"><h2 class="modal-title">스케줄러</h2><button class="modal-close" data-action="close-modal">✕</button></div>';
+    html += '<div class="modal-body">';
+    html += '<label>날짜</label><input type="date" id="sch-date" value="' + (editing ? editing.date : todayStr()) + '">';
+    html += '<label>제목</label><input type="text" id="sch-title" placeholder="예: 카드값 결제일" value="' + (editing ? escapeHtml(editing.title) : '') + '">';
+    html += '<label>메모 (선택)</label><input type="text" id="sch-memo" value="' + (editing ? escapeHtml(editing.memo || '') : '') + '">';
+    html += '<div style="margin-top:12px;display:flex;gap:8px;">';
+    html += '<button class="btn" data-action="save-schedule">' + (editing ? '수정저장' : '등록') + '</button>';
+    if (editing) html += '<button class="btn danger" data-action="delete-schedule" data-id="' + editing.id + '">삭제</button>';
+    html += '</div>';
+    html += '<h2 style="margin-top:1.2rem;">등록된 일정</h2>';
+    var sorted = state.schedules.slice().sort(function (a, b) { return a.date.localeCompare(b.date); });
+    if (sorted.length === 0) {
+      html += '<div class="empty-state">등록된 일정이 없습니다.</div>';
+    } else {
+      sorted.forEach(function (s) {
+        html += '<div class="tx-row" style="grid-template-columns:1fr auto;">';
+        html += '<div class="tx-main"><span class="tx-cat">' + escapeHtml(s.title) + '</span>';
+        if (s.memo) html += '<span class="tx-memo">' + escapeHtml(s.memo) + '</span>';
+        html += '<span class="tx-date">' + s.date + '</span></div>';
+        html += '<button class="tx-edit" data-action="edit-schedule" data-id="' + s.id + '">수정</button>';
+        html += '</div>';
+      });
+    }
+    html += '</div></div>';
+    return html;
   }
 
   function renderHome() {
     var data = monthlyReportData(currentViewMonth);
 
     var html = '';
-    html += syncBadge();
-    html += '<h1>가계부</h1>';
+    html += topBar('가계부');
     html += '<div class="month-nav">';
     html += '<button data-action="prev-month">‹</button>';
     html += '<span class="month-label">' + monthLabel(currentViewMonth) + '</span>';
@@ -295,8 +453,7 @@ import {
     var editingExpense = editingId ? state.expenses.find(function (e) { return e.id === editingId; }) : null;
 
     var html = '';
-    html += syncBadge();
-    html += '<h1>' + (editingExpense ? '지출 수정' : '지출 추가') + '</h1>';
+    html += topBar(editingExpense ? '지출 수정' : '지출 추가');
     html += '<div class="card">';
     html += '<label>날짜</label>';
     html += '<input type="date" id="f-date" value="' + (editingExpense ? editingExpense.date : todayStr()) + '">';
@@ -363,8 +520,7 @@ import {
     });
 
     var html = '';
-    html += syncBadge();
-    html += '<h1>12개월 저축 플랜</h1>';
+    html += topBar('12개월 저축 플랜');
 
     html += '<div class="card">';
     html += '<p class="metric-label">저축누계</p>';
@@ -394,8 +550,7 @@ import {
 
   function renderSettings() {
     var html = '';
-    html += syncBadge();
-    html += '<h1>설정</h1>';
+    html += topBar('설정');
 
     html += '<div class="card">';
     html += '<label>월 저축 목표액</label>';
@@ -439,7 +594,12 @@ import {
     render();
   });
 
-  app.addEventListener('click', function (e) {
+  document.body.addEventListener('click', function (e) {
+    if (e.target.id === 'modalRoot' || e.target.classList.contains('modal-overlay')) {
+      closeModal();
+      return;
+    }
+
     var chip = e.target.closest('.chip');
     if (chip) {
       var chips = document.querySelectorAll('#f-cats .chip');
@@ -472,8 +632,12 @@ import {
       render();
     }
     else if (action === 'save-expense') { saveExpense(); }
-    else if (action === 'edit-expense') { editingId = actionEl.dataset.id; render(); }
-    else if (action === 'cancel-edit') { editingId = null; render(); }
+    else if (action === 'edit-expense') {
+      editingId = actionEl.dataset.id;
+      try { history.pushState({ editing: true }, ''); } catch (err) { /* ignore */ }
+      render();
+    }
+    else if (action === 'cancel-edit') { closeModal(); }
     else if (action === 'delete-expense') {
       if (!confirm('삭제할까요?')) return;
       if (actionEl.dataset.id === editingId) editingId = null;
@@ -502,9 +666,22 @@ import {
         pushState();
       }
     }
+    else if (action === 'open-search') { searchQuery = ''; pushModal('search'); }
+    else if (action === 'open-notifications') { pushModal('notifications'); }
+    else if (action === 'open-menu') { pushModal('menu'); }
+    else if (action === 'open-scheduler') { editingScheduleId = null; pushModal('scheduler'); }
+    else if (action === 'close-modal') { closeModal(); }
+    else if (action === 'edit-schedule') { editingScheduleId = actionEl.dataset.id; render(); }
+    else if (action === 'save-schedule') { saveSchedule(); }
+    else if (action === 'delete-schedule') {
+      if (!confirm('이 일정을 삭제할까요?')) return;
+      state.schedules = state.schedules.filter(function (s) { return s.id !== actionEl.dataset.id; });
+      editingScheduleId = null;
+      pushState();
+    }
   });
 
-  app.addEventListener('change', function (e) {
+  document.body.addEventListener('change', function (e) {
     if (e.target.id === 'import-file') {
       var file = e.target.files[0];
       if (!file) return;
@@ -526,6 +703,13 @@ import {
       var val = parseInt(e.target.value, 10) || 0;
       state.monthlySavings[mk] = val;
       pushState();
+    }
+  });
+
+  document.body.addEventListener('input', function (e) {
+    if (e.target.id === 'search-input') {
+      searchQuery = e.target.value;
+      renderModal();
     }
   });
 
@@ -554,6 +738,31 @@ import {
       state.expenses.push({ id: uid(), date: date, categoryId: categoryId, amount: amount, memo: memo });
       pushState();
       showToast('저장되었습니다');
+    }
+  }
+
+  function saveSchedule() {
+    var date = document.getElementById('sch-date').value || todayStr();
+    var title = document.getElementById('sch-title').value.trim();
+    var memo = document.getElementById('sch-memo').value.trim();
+    if (!title) {
+      alert('제목을 입력해주세요.');
+      return;
+    }
+    if (editingScheduleId) {
+      var existing = state.schedules.find(function (s) { return s.id === editingScheduleId; });
+      if (existing) {
+        existing.date = date;
+        existing.title = title;
+        existing.memo = memo;
+      }
+      editingScheduleId = null;
+      pushState();
+      showToast('일정이 수정되었습니다');
+    } else {
+      state.schedules.push({ id: uid(), date: date, title: title, memo: memo });
+      pushState();
+      showToast('일정이 등록되었습니다');
     }
   }
 
@@ -746,6 +955,7 @@ import {
   }, { passive: true });
 
   document.body.addEventListener('touchend', function (e) {
+    if (modalStack.length) return;
     if (!e.changedTouches || e.changedTouches.length !== 1) return;
     var dx = e.changedTouches[0].clientX - touchStartX;
     var dy = e.changedTouches[0].clientY - touchStartY;
