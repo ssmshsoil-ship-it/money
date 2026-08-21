@@ -130,7 +130,8 @@ import {
   function pushState() {
     cacheLocally();
     setDoc(HOUSEHOLD_DOC, state).catch(function (err) {
-      console.error('저장 실패(오프라인일 수 있음):', err);
+      console.error('저장 실패:', err);
+      showToast('저장 실패 - 인터넷 연결을 확인해주세요');
     });
   }
 
