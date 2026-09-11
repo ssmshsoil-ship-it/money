@@ -129,6 +129,7 @@ import {
   // including this same device (which is how we re-render after edits).
   function pushState() {
     cacheLocally();
+    render();
     setDoc(HOUSEHOLD_DOC, state).catch(function (err) {
       console.error('저장 실패:', err);
       showToast('저장 실패 - 인터넷 연결을 확인해주세요');
@@ -710,7 +711,10 @@ import {
       else pushNav({ expandedCategoryId: catId });
     }
     else if (action === 'save-expense') { saveExpense(); }
-    else if (action === 'edit-expense') { pushNav({ editingId: actionEl.dataset.id }); }
+    else if (action === 'edit-expense') {
+      pushNav({ editingId: actionEl.dataset.id });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
     else if (action === 'cancel-edit') { goBack(); }
     else if (action === 'delete-expense') {
       if (!confirm('삭제할까요? (10일간 휴지통에 보관됩니다)')) return;
@@ -831,6 +835,13 @@ import {
       return;
     }
     if (editingId) {
+      var cat = state.categories.find(function (c) { return c.id === categoryId; });
+      var summary = '다음 내용으로 수정할까요?\n\n' +
+        '카테고리: ' + (cat ? cat.name : '기타') + '\n' +
+        '금액: ' + formatWon(amount) + '\n' +
+        '날짜: ' + date +
+        (memo ? '\n메모: ' + memo : '');
+      if (!confirm(summary)) return;
       var existing = state.expenses.find(function (e) { return e.id === editingId; });
       if (existing) {
         existing.date = date;
