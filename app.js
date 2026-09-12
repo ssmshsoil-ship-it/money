@@ -846,8 +846,8 @@ import {
       alert('금액을 입력해주세요.');
       return;
     }
+    var cat = state.categories.find(function (c) { return c.id === categoryId; });
     if (editingId) {
-      var cat = state.categories.find(function (c) { return c.id === categoryId; });
       var summary = '다음 내용으로 수정할까요?\n\n' +
         '카테고리: ' + (cat ? cat.name : '기타') + '\n' +
         '금액: ' + formatWon(amount) + '\n' +
@@ -865,6 +865,12 @@ import {
       showToast('수정되었습니다');
       goBack();
     } else {
+      var newSummary = '다음 내용으로 등록할까요?\n\n' +
+        '카테고리: ' + (cat ? cat.name : '기타') + '\n' +
+        '금액: ' + formatWon(amount) + '\n' +
+        '날짜: ' + date +
+        (memo ? '\n메모: ' + memo : '');
+      if (!confirm(newSummary)) return;
       state.expenses.push({ id: uid(), date: date, categoryId: categoryId, amount: amount, memo: memo });
       pushState();
       showToast('저장되었습니다');
