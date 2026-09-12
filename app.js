@@ -231,6 +231,18 @@ import {
     return months;
   }
 
+  function scrollAppToTop() {
+    function doScroll() {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      if (app) app.scrollTop = 0;
+    }
+    doScroll();
+    setTimeout(doScroll, 0);
+    requestAnimationFrame(doScroll);
+  }
+
   function todayStr() {
     var d = new Date();
     return monthKeyOf(d) + '-' + String(d.getDate()).padStart(2, '0');
@@ -713,7 +725,7 @@ import {
     else if (action === 'save-expense') { saveExpense(); }
     else if (action === 'edit-expense') {
       pushNav({ editingId: actionEl.dataset.id });
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      scrollAppToTop();
     }
     else if (action === 'cancel-edit') { goBack(); }
     else if (action === 'delete-expense') {
