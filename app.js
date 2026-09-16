@@ -40,6 +40,8 @@ import {
   var homeView = 'expense'; // 'expense' | 'income'
   var addView = 'expense'; // 'expense' | 'income'
   var cashFlowExpanded = false;
+  var calendarViewMonth = monthKeyOf(new Date());
+  var expandedCalendarDate = null;
 
   // ---------- Unified navigation stack ----------
   // navStack[0] is always the root (home tab, nothing open). Every deeper
@@ -224,6 +226,21 @@ import {
     return monthKeyOf(d);
   }
 
+  function daysInMonth(mk) {
+    var parts = mk.split('-').map(Number);
+    return new Date(parts[0], parts[1], 0).getDate();
+  }
+  function firstWeekdayOfMonth(mk) {
+    var parts = mk.split('-').map(Number);
+    return new Date(parts[0], parts[1] - 1, 1).getDay();
+  }
+  function formatDateLabel(dateStr) {
+    var parts = dateStr.split('-').map(Number);
+    var d = new Date(parts[0], parts[1] - 1, parts[2]);
+    var wd = ['일', '월', '화', '수', '목', '금', '토'][d.getDay()];
+    return parts[1] + '월 ' + parts[2] + '일 (' + wd + ')';
+  }
+
   function formatWon(n) {
     n = Math.round(n || 0);
     return n.toLocaleString('ko-KR') + '원';
@@ -398,6 +415,7 @@ import {
     else if (view === 'trash') inner = renderTrashModal();
     else if (view === 'asset-item') inner = renderAssetItemModal();
     else if (view === 'settings') inner = renderSettingsModal();
+    else if (view === 'calendar') inner = renderCalendarModal();
     root.innerHTML = '<div class="modal-overlay">' + inner + '</div>';
     var newSheet = root.querySelector('.modal-sheet');
     if (newSheet && savedScroll) newSheet.scrollTop = savedScroll;
@@ -473,6 +491,9 @@ import {
     var html = '<div class="modal-sheet menu-sheet">';
     html += '<div class="modal-header"><h2 class="modal-title">메뉴</h2><button class="modal-close" data-action="close-modal">✕</button></div>';
     html += '<div class="menu-list">';
+    html += '<button class="menu-item" data-action="open-calendar">';
+    html += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/><circle cx="8" cy="15" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="15" r="1.2" fill="currentColor" stroke="none"/><circle cx="16" cy="15" r="1.2" fill="currentColor" stroke="none"/></svg>';
+    html += '<span>달력</span></button>';
     html += '<button class="menu-item" data-action="open-scheduler">';
     html += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>';
     html += '<span>스케줄러</span></button>';
@@ -1093,6 +1114,71 @@ import {
     return html;
   }
 
+  function renderCalendarModal() {
+    var monthExpenses = getExpensesForMonth(calendarViewMonth);
+    var monthTotal = monthExpenses.reduce(function (s, e) { return s + e.amount; }, 0);
+    var dayTotals = {};
+    monthExpenses.forEach(function (e) {
+      dayTotals[e.date] = (dayTotals[e.date] || 0) + e.amount;
+    });
+
+    var html = '<div class="modal-sheet">';
+    html += '<div class="modal-header"><h2 class="modal-title">달력</h2><button class="modal-close" data-action="close-modal">✕</button></div>';
+
+    html += '<div class="month-nav">';
+    html += '<button data-action="calendar-prev-month">‹</button>';
+    html += '<span class="month-label">' + monthLabel(calendarViewMonth) + '</span>';
+    html += '<button data-action="calendar-next-month">›</button>';
+    html += '</div>';
+
+    html += '<p class="metric-value" style="margin-bottom:10px;">' + formatWon(monthTotal) + '</p>';
+
+    html += '<div class="cal-grid">';
+    ['일', '월', '화', '수', '목', '금', '토'].forEach(function (wd) {
+      html += '<div class="cal-weekday">' + wd + '</div>';
+    });
+    var startWeekday = firstWeekdayOfMonth(calendarViewMonth);
+    var numDays = daysInMonth(calendarViewMonth);
+    for (var i = 0; i < startWeekday; i++) html += '<div class="cal-cell empty"></div>';
+    for (var d = 1; d <= numDays; d++) {
+      var dateStr = calendarViewMonth + '-' + String(d).padStart(2, '0');
+      var dayTotal = dayTotals[dateStr] || 0;
+      var hasExpense = dayTotal > 0;
+      var isSelected = expandedCalendarDate === dateStr;
+      html += '<div class="cal-cell' + (hasExpense ? ' has-expense' : '') + (isSelected ? ' selected' : '') + '"' +
+        (hasExpense ? ' data-action="toggle-calendar-date" data-date="' + dateStr + '"' : '') + '>';
+      html += '<span class="cal-day-num">' + d + '</span>';
+      if (hasExpense) html += '<span class="cal-day-total">' + dayTotal.toLocaleString('ko-KR') + '</span>';
+      html += '</div>';
+    }
+    html += '</div>';
+
+    if (expandedCalendarDate) {
+      var items = state.expenses.filter(function (e) { return e.date === expandedCalendarDate; });
+      html += '<h2>' + formatDateLabel(expandedCalendarDate) + ' 내역</h2>';
+      if (items.length === 0) {
+        html += '<div class="empty-state">내역이 없습니다.</div>';
+      } else {
+        html += '<div class="card" style="padding:0.4rem 1.1rem;">';
+        items.forEach(function (e) {
+          var idx = state.categories.findIndex(function (c) { return c.id === e.categoryId; });
+          var cat = idx > -1 ? state.categories[idx] : null;
+          var dotColor = idx > -1 ? categoryColor(idx) : '#9ca3af';
+          html += '<div class="tx-row" style="grid-template-columns:1fr auto;">';
+          html += '<div class="tx-main"><span class="tx-cat"><span class="tx-dot" style="background:' + dotColor + ';"></span>' + (cat ? categoryEmoji(cat.name) + ' ' : '') + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
+          if (e.memo) html += '<span class="tx-memo">' + escapeHtml(e.memo) + '</span>';
+          html += '</div>';
+          html += '<span class="tx-amt">' + formatWon(e.amount) + '</span>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+    }
+
+    html += '</div>';
+    return html;
+  }
+
   // ---------- Event handling ----------
 
   document.getElementById('tabbar').addEventListener('click', function (e) {
@@ -1239,6 +1325,26 @@ import {
     else if (action === 'open-scheduler') { pushNav({ modal: 'scheduler', editingScheduleId: null }); }
     else if (action === 'open-trash') { pushNav({ modal: 'trash' }); }
     else if (action === 'open-settings') { pushNav({ modal: 'settings' }); }
+    else if (action === 'open-calendar') {
+      calendarViewMonth = monthKeyOf(new Date());
+      expandedCalendarDate = null;
+      pushNav({ modal: 'calendar' });
+    }
+    else if (action === 'calendar-prev-month') {
+      calendarViewMonth = shiftMonth(calendarViewMonth, -1);
+      expandedCalendarDate = null;
+      renderModal();
+    }
+    else if (action === 'calendar-next-month') {
+      calendarViewMonth = shiftMonth(calendarViewMonth, 1);
+      expandedCalendarDate = null;
+      renderModal();
+    }
+    else if (action === 'toggle-calendar-date') {
+      var clickedDate = actionEl.dataset.date;
+      expandedCalendarDate = (expandedCalendarDate === clickedDate) ? null : clickedDate;
+      renderModal();
+    }
     else if (action === 'close-modal') { goBack(); }
     else if (action === 'edit-schedule') { pushNav({ editingScheduleId: actionEl.dataset.id }); }
     else if (action === 'cancel-schedule-edit') { goBack(); }
