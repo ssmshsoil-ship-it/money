@@ -42,6 +42,46 @@ body {
 h1 { font-size: 21px; font-weight: 700; margin: 0.25rem 0 1rem; }
 h2 { font-size: 15px; font-weight: 700; margin: 1.25rem 0 0.6rem; color: var(--text-secondary); }
 
+.metric-value.negative { color: var(--danger); }
+
+/* ---- Expense/Income view toggle ---- */
+.view-toggle {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  background: var(--surface-2); border-radius: 10px; padding: 4px; margin-bottom: 1rem;
+}
+.view-toggle-btn {
+  border: none; background: none; padding: 9px 0; border-radius: 8px;
+  font-size: 14px; font-weight: 700; color: var(--text-secondary); cursor: pointer; font-family: inherit;
+}
+.view-toggle-btn.active { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+
+/* ---- Pie chart ---- */
+.pie-wrap { display: flex; justify-content: center; padding: 8px 0 6px; }
+.pie-chart { width: 170px; height: 170px; border-radius: 50%; }
+.pie-legend { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.pie-legend-row { display: grid; grid-template-columns: 12px 1fr auto auto; align-items: center; column-gap: 8px; font-size: 13px; }
+.pie-dot { width: 10px; height: 10px; border-radius: 50%; }
+.pie-legend-name { color: var(--text); }
+.pie-legend-pct { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.pie-legend-amt { color: var(--text-muted); font-size: 12px; text-align: right; min-width: 72px; }
+
+/* ---- Category usage hint (Add tab) ---- */
+.cat-pct-hint { font-size: 12px; color: var(--text-secondary); margin: -6px 0 0; }
+
+/* ---- Asset overview (Plan tab) ---- */
+.asset-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 0; border-bottom: 0.5px solid var(--border);
+}
+.asset-row:last-of-type { border-bottom: none; }
+.asset-label { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+.asset-dot { width: 10px; height: 10px; border-radius: 50%; }
+.asset-dot.savings { background: #2563eb; }
+.asset-dot.stock { background: #9333ea; }
+.asset-dot.debt { background: var(--danger); }
+.asset-value { font-size: 14px; font-weight: 700; }
+.asset-input { width: 140px; padding: 7px 10px; font-size: 14px; text-align: right; }
+
 /* ---- Top app bar ---- */
 .topbar {
   display: grid; grid-template-columns: auto 1fr auto;
@@ -67,15 +107,6 @@ h2 { font-size: 15px; font-weight: 700; margin: 1.25rem 0 0.6rem; color: var(--t
   min-width: 15px; height: 15px; display: flex; align-items: center; justify-content: center;
   padding: 0 3px;
 }
-
-/* ---- Hamburger button (fixed, bottom-left, above tab bar) ---- */
-.hamburger-btn {
-  position: fixed; left: 14px; bottom: calc(72px + env(safe-area-inset-bottom));
-  width: 44px; height: 44px; border-radius: 50%; border: none;
-  background: var(--surface); color: var(--text); box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-  display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 500;
-}
-.hamburger-btn svg { width: 20px; height: 20px; }
 
 /* ---- Modal overlay / sheet ---- */
 .modal-overlay {

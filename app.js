@@ -37,13 +37,15 @@ import {
   var isOnline = true;
   var unsubscribeSnapshot = null;
   var searchQuery = '';
+  var homeView = 'expense'; // 'expense' | 'income'
+  var addView = 'expense'; // 'expense' | 'income'
 
   // ---------- Unified navigation stack ----------
   // navStack[0] is always the root (home tab, nothing open). Every deeper
   // screen (a different tab, a modal, an edit form, an expanded category)
   // is one more entry. The physical/PWA back button pops exactly one entry
   // at a time; popping past the root lets the browser handle the exit.
-  var navStack = [{ tab: 'home', modal: null, editingId: null, editingScheduleId: null, expandedCategoryId: null }];
+  var navStack = [{ tab: 'home', modal: null, editingId: null, editingIncomeId: null, editingScheduleId: null, expandedCategoryId: null }];
 
   function currentNav() { return navStack[navStack.length - 1]; }
   function currentTabGet() { return currentNav().tab; }
@@ -67,6 +69,7 @@ import {
   function applyNav(nav) {
     currentTab = nav.tab;
     editingId = nav.editingId;
+    editingIncomeId = nav.editingIncomeId;
     editingScheduleId = nav.editingScheduleId;
     expandedCategoryId = nav.expandedCategoryId;
     render();
@@ -82,6 +85,7 @@ import {
 
   var currentTab = 'home';
   var editingId = null;
+  var editingIncomeId = null;
   var expandedCategoryId = null;
   var editingScheduleId = null;
 
@@ -102,9 +106,12 @@ import {
         { id: 'leisure', name: '레저/여가', cap: 8000 }
       ],
       expenses: [],
+      income: [],
       monthlySavings: {},
       schedules: [],
-      trash: []
+      trash: [],
+      assets: { debt: 0, stock: 0 },
+      debtItems: []
     };
   }
 
@@ -221,6 +228,13 @@ import {
       .reduce(function (sum, e) { return sum + e.amount; }, 0);
   }
 
+  function getIncomeForMonth(mk) {
+    return state.income.filter(function (e) { return e.date.slice(0, 7) === mk; });
+  }
+  function totalIncomeForMonth(mk) {
+    return getIncomeForMonth(mk).reduce(function (sum, e) { return sum + e.amount; }, 0);
+  }
+
   function planMonthList() {
     var months = [];
     var mk = state.planStart;
@@ -291,7 +305,6 @@ import {
     if (currentTab === 'home') renderHome();
     else if (currentTab === 'add') renderAdd();
     else if (currentTab === 'plan') renderPlan();
-    else if (currentTab === 'settings') renderSettings();
     renderModal();
   }
 
@@ -332,6 +345,7 @@ import {
     else if (view === 'menu') inner = renderMenuModal();
     else if (view === 'scheduler') inner = renderSchedulerModal();
     else if (view === 'trash') inner = renderTrashModal();
+    else if (view === 'settings') inner = renderSettingsModal();
     root.innerHTML = '<div class="modal-overlay">' + inner + '</div>';
     if (view === 'search') {
       var input = document.getElementById('search-input');
@@ -411,6 +425,9 @@ import {
     html += '<button class="menu-item" data-action="open-trash">';
     html += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V4h6v3M6 7l1 13a2 2 0 002 2h6a2 2 0 002-2l1-13"/></svg>';
     html += '<span>휴지통' + (trashCount > 0 ? ' (' + trashCount + ')' : '') + '</span></button>';
+    html += '<button class="menu-item" data-action="open-settings">';
+    html += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.5 1h.1a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>';
+    html += '<span>설정</span></button>';
     html += '</div></div>';
     return html;
   }
@@ -479,6 +496,31 @@ import {
     return html;
   }
 
+  function buildPieChart(data) {
+    var total = data.totalSpent;
+    if (total <= 0) return '<div class="empty-state">이번달 지출 내역이 없습니다.</div>';
+    var gradientParts = [];
+    var cursor = 0;
+    var legendHtml = '';
+    state.categories.forEach(function (cat, i) {
+      var spent = getCategoryTotal(currentViewMonth, cat.id);
+      if (spent <= 0) return;
+      var pct = spent / total * 100;
+      var color = categoryColor(i);
+      var start = cursor;
+      var end = cursor + pct;
+      gradientParts.push(color + ' ' + start.toFixed(2) + '% ' + end.toFixed(2) + '%');
+      cursor = end;
+      legendHtml += '<div class="pie-legend-row"><span class="pie-dot" style="background:' + color + ';"></span>' +
+        '<span class="pie-legend-name">' + escapeHtml(cat.name) + '</span>' +
+        '<span class="pie-legend-pct">' + pct.toFixed(1) + '%</span>' +
+        '<span class="pie-legend-amt">' + formatWon(spent) + '</span></div>';
+    });
+    var gradient = 'conic-gradient(' + gradientParts.join(',') + ')';
+    return '<div class="pie-wrap"><div class="pie-chart" style="background:' + gradient + ';"></div></div>' +
+      '<div class="pie-legend">' + legendHtml + '</div>';
+  }
+
   function renderHome() {
     var data = monthlyReportData(currentViewMonth);
 
@@ -490,10 +532,46 @@ import {
     html += '<button data-action="next-month">›</button>';
     html += '</div>';
 
+    html += '<div class="view-toggle">';
+    html += '<button class="view-toggle-btn' + (homeView === 'expense' ? ' active' : '') + '" data-action="set-home-view" data-view="expense">지출</button>';
+    html += '<button class="view-toggle-btn' + (homeView === 'income' ? ' active' : '') + '" data-action="set-home-view" data-view="income">수입</button>';
+    html += '</div>';
+
+    if (homeView === 'income') {
+      var incomeTotal = totalIncomeForMonth(currentViewMonth);
+      html += '<div class="card">';
+      html += '<p class="metric-label">이번달 합계수입</p>';
+      html += '<p class="metric-value">' + formatWon(incomeTotal) + '</p>';
+      html += '</div>';
+
+      html += '<h2>수입 내역</h2>';
+      var incomeItems = getIncomeForMonth(currentViewMonth).slice().sort(function (a, b) { return b.date.localeCompare(a.date); });
+      if (incomeItems.length === 0) {
+        html += '<div class="empty-state">이번달 수입 내역이 없습니다.</div>';
+      } else {
+        html += '<div class="card" style="padding:0.4rem 1.1rem;">';
+        incomeItems.forEach(function (e) {
+          html += '<div class="tx-row" style="grid-template-columns:1fr auto auto;">';
+          html += '<div class="tx-main"><span class="tx-cat">' + escapeHtml(e.source || '수입') + '</span>';
+          if (e.memo) html += '<span class="tx-memo">' + escapeHtml(e.memo) + '</span>';
+          html += '<span class="tx-date">' + e.date + '</span></div>';
+          html += '<span class="tx-amt" style="color:#15803d;">+' + formatWon(e.amount) + '</span>';
+          html += '<button class="tx-edit" data-action="edit-income" data-id="' + e.id + '">수정</button>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      app.innerHTML = html;
+      return;
+    }
+
     html += '<div class="card">';
     html += '<p class="metric-label">이번달 합계소비액</p>';
     html += '<p class="metric-value">' + formatWon(data.totalSpent) + ' <span class="metric-sub">/ 상한 ' + formatWon(data.totalCap) + '</span></p>';
     html += '</div>';
+
+    html += '<h2>카테고리별 비중</h2>';
+    html += '<div class="card">' + buildPieChart(data) + '</div>';
 
     html += '<h2>카테고리별 상한</h2>';
     state.categories.forEach(function (cat, i) {
@@ -541,27 +619,49 @@ import {
 
   function renderAdd() {
     var editingExpense = editingId ? state.expenses.find(function (e) { return e.id === editingId; }) : null;
+    var editingIncome = editingIncomeId ? state.income.find(function (e) { return e.id === editingIncomeId; }) : null;
+    var mode = editingExpense ? 'expense' : (editingIncome ? 'income' : addView);
 
     var html = '';
-    html += topBar(editingExpense ? '지출 수정' : '지출 추가');
+    var title = editingExpense ? '지출 수정' : (editingIncome ? '수입 수정' : (mode === 'income' ? '수입 추가' : '지출 추가'));
+    html += topBar(title);
+
+    if (!editingExpense && !editingIncome) {
+      html += '<div class="view-toggle">';
+      html += '<button class="view-toggle-btn' + (addView === 'expense' ? ' active' : '') + '" data-action="set-add-view" data-view="expense">지출</button>';
+      html += '<button class="view-toggle-btn' + (addView === 'income' ? ' active' : '') + '" data-action="set-add-view" data-view="income">수입</button>';
+      html += '</div>';
+    }
+
     html += '<div class="card">';
     html += '<label>날짜</label>';
-    html += '<input type="date" id="f-date" value="' + (editingExpense ? editingExpense.date : todayStr()) + '">';
-    html += '<label>카테고리</label>';
-    html += '<div class="chip-group" id="f-cats">';
-    state.categories.forEach(function (cat, i) {
-      var isSelected = editingExpense ? cat.id === editingExpense.categoryId : i === 0;
-      var color = categoryColor(i);
-      var style = isSelected
-        ? 'background:' + color + ';border-color:' + color + ';color:#fff;'
-        : 'background:' + hexToRgba(color, 0.14) + ';border-color:' + hexToRgba(color, 0.35) + ';color:var(--text);';
-      html += '<div class="chip' + (isSelected ? ' selected' : '') + '" data-cat="' + cat.id + '" style="' + style + '">' + escapeHtml(cat.name) + '</div>';
-    });
-    html += '</div>';
+    html += '<input type="date" id="f-date" value="' + (editingExpense ? editingExpense.date : (editingIncome ? editingIncome.date : todayStr())) + '">';
+
+    if (mode === 'expense') {
+      html += '<label>카테고리</label>';
+      html += '<div class="chip-group" id="f-cats">';
+      var selectedIdx = 0;
+      state.categories.forEach(function (cat, i) {
+        var isSelected = editingExpense ? cat.id === editingExpense.categoryId : i === 0;
+        if (isSelected) selectedIdx = i;
+        var color = categoryColor(i);
+        var style = isSelected
+          ? 'background:' + color + ';border-color:' + color + ';color:#fff;'
+          : 'background:' + hexToRgba(color, 0.14) + ';border-color:' + hexToRgba(color, 0.35) + ';color:var(--text);';
+        html += '<div class="chip' + (isSelected ? ' selected' : '') + '" data-cat="' + cat.id + '" data-idx="' + i + '" style="' + style + '">' + escapeHtml(cat.name) + '</div>';
+      });
+      html += '</div>';
+      html += '<p class="cat-pct-hint" id="cat-pct-hint">' + categoryPctHint(state.categories[selectedIdx]) + '</p>';
+    } else {
+      html += '<label>수입원</label>';
+      html += '<input type="text" id="f-source" placeholder="예: 급여, 용돈" value="' + (editingIncome ? escapeHtml(editingIncome.source || '') : '') + '">';
+    }
+
     html += '<label>금액</label>';
-    html += '<input type="number" id="f-amount" placeholder="0" inputmode="numeric" value="' + (editingExpense ? editingExpense.amount : '') + '">';
+    html += '<input type="number" id="f-amount" placeholder="0" inputmode="numeric" value="' + (editingExpense ? editingExpense.amount : (editingIncome ? editingIncome.amount : '')) + '">';
     html += '<label>메모 (선택)</label>';
-    html += '<input type="text" id="f-memo" placeholder="예: 더팜마트" value="' + (editingExpense ? escapeHtml(editingExpense.memo || '') : '') + '">';
+    html += '<input type="text" id="f-memo" placeholder="예: 더팜마트" value="' + (editingExpense ? escapeHtml(editingExpense.memo || '') : (editingIncome ? escapeHtml(editingIncome.memo || '') : '')) + '">';
+
     html += '<div style="margin-top:1rem;">';
     if (editingExpense) {
       html += '<div class="tx-edit-actions">';
@@ -569,36 +669,71 @@ import {
       html += '<button class="btn secondary" data-action="cancel-edit">취소</button>';
       html += '<button class="btn danger" data-action="delete-expense" data-id="' + editingExpense.id + '">삭제</button>';
       html += '</div>';
+    } else if (editingIncome) {
+      html += '<div class="tx-edit-actions">';
+      html += '<button class="btn editing" data-action="save-income">수정저장</button>';
+      html += '<button class="btn secondary" data-action="cancel-income-edit">취소</button>';
+      html += '<button class="btn danger" data-action="delete-income" data-id="' + editingIncome.id + '">삭제</button>';
+      html += '</div>';
+    } else if (mode === 'income') {
+      html += '<button class="btn" data-action="save-income">저장</button>';
     } else {
       html += '<button class="btn" data-action="save-expense">저장</button>';
     }
     html += '</div>';
     html += '</div>';
 
-    html += '<h2>최근 내역</h2>';
-    var recent = state.expenses.slice().sort(function (a, b) { return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); }).slice(0, 30);
-    if (recent.length === 0) {
-      html += '<div class="empty-state">아직 입력한 지출이 없습니다.</div>';
+    if (mode === 'expense') {
+      html += '<h2>최근 내역</h2>';
+      var recent = state.expenses.slice().sort(function (a, b) { return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); }).slice(0, 30);
+      if (recent.length === 0) {
+        html += '<div class="empty-state">아직 입력한 지출이 없습니다.</div>';
+      } else {
+        html += '<div class="card" style="padding:0.4rem 1.1rem;">';
+        recent.forEach(function (e) {
+          var catIndex = state.categories.findIndex(function (c) { return c.id === e.categoryId; });
+          var cat = catIndex > -1 ? state.categories[catIndex] : null;
+          var dotColor = catIndex > -1 ? categoryColor(catIndex) : '#9ca3af';
+          html += '<div class="tx-row' + (e.id === editingId ? ' editing' : '') + '">';
+          html += '<div class="tx-main">';
+          html += '<span class="tx-cat"><span class="tx-dot" style="background:' + dotColor + ';"></span>' + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
+          if (e.memo) html += '<span class="tx-memo">' + escapeHtml(e.memo) + '</span>';
+          html += '<span class="tx-date">' + e.date + '</span>';
+          html += '</div>';
+          html += '<span class="tx-amt">' + formatWon(e.amount) + '</span>';
+          html += '<button class="tx-edit" data-action="edit-expense" data-id="' + e.id + '">수정</button>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
     } else {
-      html += '<div class="card" style="padding:0.4rem 1.1rem;">';
-      recent.forEach(function (e) {
-        var catIndex = state.categories.findIndex(function (c) { return c.id === e.categoryId; });
-        var cat = catIndex > -1 ? state.categories[catIndex] : null;
-        var dotColor = catIndex > -1 ? categoryColor(catIndex) : '#9ca3af';
-        html += '<div class="tx-row' + (e.id === editingId ? ' editing' : '') + '">';
-        html += '<div class="tx-main">';
-        html += '<span class="tx-cat"><span class="tx-dot" style="background:' + dotColor + ';"></span>' + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
-        if (e.memo) html += '<span class="tx-memo">' + escapeHtml(e.memo) + '</span>';
-        html += '<span class="tx-date">' + e.date + '</span>';
+      html += '<h2>최근 수입 내역</h2>';
+      var recentIncome = state.income.slice().sort(function (a, b) { return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); }).slice(0, 30);
+      if (recentIncome.length === 0) {
+        html += '<div class="empty-state">아직 입력한 수입이 없습니다.</div>';
+      } else {
+        html += '<div class="card" style="padding:0.4rem 1.1rem;">';
+        recentIncome.forEach(function (e) {
+          html += '<div class="tx-row' + (e.id === editingIncomeId ? ' editing' : '') + '">';
+          html += '<div class="tx-main"><span class="tx-cat">' + escapeHtml(e.source || '수입') + '</span>';
+          if (e.memo) html += '<span class="tx-memo">' + escapeHtml(e.memo) + '</span>';
+          html += '<span class="tx-date">' + e.date + '</span></div>';
+          html += '<span class="tx-amt" style="color:#15803d;">+' + formatWon(e.amount) + '</span>';
+          html += '<button class="tx-edit" data-action="edit-income" data-id="' + e.id + '">수정</button>';
+          html += '</div>';
+        });
         html += '</div>';
-        html += '<span class="tx-amt">' + formatWon(e.amount) + '</span>';
-        html += '<button class="tx-edit" data-action="edit-expense" data-id="' + e.id + '">수정</button>';
-        html += '</div>';
-      });
-      html += '</div>';
+      }
     }
 
     app.innerHTML = html;
+  }
+
+  function categoryPctHint(cat) {
+    if (!cat) return '';
+    var spent = getCategoryTotal(currentViewMonth, cat.id);
+    var pct = Math.round((spent / cat.cap) * 100);
+    return '이번달 "' + escapeHtml(cat.name) + '" ' + pct + '% 사용 중 (' + formatWon(spent) + ' / ' + formatWon(cat.cap) + ')';
   }
 
   function renderPlan() {
@@ -608,10 +743,25 @@ import {
       cumTarget += state.savingsGoal;
       cumActual += (state.monthlySavings[mk] || 0);
     });
+    var netWorth = cumActual + state.assets.stock - state.assets.debt;
 
     var html = '';
     html += topBar('12개월 저축 플랜');
 
+    html += '<h2>자산현황</h2>';
+    html += '<div class="card">';
+    html += '<p class="metric-label">순자산 (저축 + 주식 − 빚)</p>';
+    html += '<p class="metric-value' + (netWorth < 0 ? ' negative' : '') + '">' + formatWon(netWorth) + '</p>';
+    html += '</div>';
+    html += '<div class="card">';
+    html += '<div class="asset-row"><span class="asset-label"><span class="asset-dot savings"></span>저축</span><span class="asset-value">' + formatWon(cumActual) + '</span></div>';
+    html += '<div class="asset-row"><span class="asset-label"><span class="asset-dot stock"></span>주식</span><input type="number" id="asset-stock" class="asset-input" value="' + state.assets.stock + '" inputmode="numeric"></div>';
+    html += '<div class="asset-row"><span class="asset-label"><span class="asset-dot debt"></span>빚</span><input type="number" id="asset-debt" class="asset-input" value="' + state.assets.debt + '" inputmode="numeric"></div>';
+    html += '<button class="btn secondary small" data-action="save-assets" style="margin-top:10px;">자산 저장</button>';
+    html += '<p class="metric-sub" style="margin-top:8px;">주식·빚은 현재 잔액을 그때그때 직접 업데이트하는 방식입니다. 저축은 아래 저축플랜 표에서 자동 계산됩니다.</p>';
+    html += '</div>';
+
+    html += '<h2>저축누계</h2>';
     html += '<div class="card">';
     html += '<p class="metric-label">저축누계</p>';
     html += '<p class="metric-value">' + formatWon(cumActual) + ' <span class="metric-sub">/ ' + formatWon(cumTarget) + '</span></p>';
@@ -638,14 +788,13 @@ import {
     app.innerHTML = html;
   }
 
-  function renderSettings() {
-    var html = '';
-    html += topBar('설정');
+  function renderSettingsModal() {
+    var html = '<div class="modal-sheet">';
+    html += '<div class="modal-header"><h2 class="modal-title">설정</h2><button class="modal-close" data-action="close-modal">✕</button></div>';
+    html += '<div class="modal-body">';
 
-    html += '<div class="card">';
     html += '<label>월 저축 목표액</label>';
     html += '<input type="number" id="s-goal" value="' + state.savingsGoal + '" inputmode="numeric">';
-    html += '</div>';
 
     html += '<h2>카테고리별 상한</h2>';
     html += '<div class="card" id="s-categories">';
@@ -661,9 +810,25 @@ import {
 
     html += '<div style="margin-top:1rem;"><button class="btn" data-action="save-settings">설정 저장</button></div>';
 
+    html += '<h2>대출 상환 고정일</h2>';
+    html += '<div class="card" id="s-debtitems">';
+    if (state.debtItems.length === 0) {
+      html += '<p class="metric-sub" style="margin:0 0 8px;">매월 고정일에 상환되는 대출을 등록해두면 알림에서 챙기기 쉽습니다.</p>';
+    }
+    state.debtItems.forEach(function (d) {
+      html += '<div class="settings-row" data-debt-id="' + d.id + '">';
+      html += '<input type="text" class="s-debt-name" placeholder="예: 신한대출" value="' + escapeHtml(d.name) + '">';
+      html += '<input type="number" class="s-debt-day" placeholder="일" min="1" max="31" value="' + d.day + '" inputmode="numeric" style="flex:0 0 60px;">';
+      html += '<button class="tx-del" data-action="delete-debtitem" data-id="' + d.id + '">×</button>';
+      html += '</div>';
+    });
+    html += '<button class="btn secondary small" data-action="add-debtitem" style="margin-top:6px;">+ 대출 항목 추가</button>';
+    html += '</div>';
+    html += '<div style="margin-top:0.8rem;"><button class="btn" data-action="save-debtitems">대출 상환일 저장</button></div>';
+
     html += '<h2>데이터 백업 (로컬 파일)</h2>';
     html += '<div class="card">';
-    html += '<p class="metric-sub">데이터는 이제 두 분 모두에게 실시간으로 공유됩니다(Firebase). 이 백업은 만약을 위한 추가 안전장치입니다.</p>';
+    html += '<p class="metric-sub">데이터는 두 분 모두에게 실시간으로 공유됩니다(Firebase). 이 백업은 만약을 위한 추가 안전장치입니다.</p>';
     html += '<div class="export-row">';
     html += '<button class="btn secondary" data-action="export-data">내보내기</button>';
     html += '<button class="btn secondary" data-action="import-data">가져오기</button>';
@@ -672,16 +837,17 @@ import {
     html += '<div style="margin-top:8px;"><button class="btn danger small" data-action="reset-data">전체 초기화(둘 다 삭제됨)</button></div>';
     html += '</div>';
 
-    app.innerHTML = html;
+    html += '</div></div>';
+    return html;
   }
 
   // ---------- Event handling ----------
 
   document.getElementById('tabbar').addEventListener('click', function (e) {
     var btn = e.target.closest('.tab-btn');
-    if (!btn) return;
+    if (!btn || !btn.dataset.tab) return;
     if (btn.dataset.tab === currentTab) return;
-    pushNav({ tab: btn.dataset.tab, modal: null, editingId: null, editingScheduleId: null, expandedCategoryId: null });
+    pushNav({ tab: btn.dataset.tab, modal: null, editingId: null, editingIncomeId: null, editingScheduleId: null, expandedCategoryId: null });
   });
 
   document.body.addEventListener('click', function (e) {
@@ -706,6 +872,8 @@ import {
       chip.style.background = clickedColor;
       chip.style.borderColor = clickedColor;
       chip.style.color = '#fff';
+      var hintEl = document.getElementById('cat-pct-hint');
+      if (hintEl) hintEl.innerHTML = categoryPctHint(state.categories[clickedIdx]);
       return;
     }
 
@@ -715,6 +883,30 @@ import {
 
     if (action === 'prev-month') { currentViewMonth = shiftMonth(currentViewMonth, -1); render(); }
     else if (action === 'next-month') { currentViewMonth = shiftMonth(currentViewMonth, 1); render(); }
+    else if (action === 'set-home-view') { homeView = actionEl.dataset.view; render(); }
+    else if (action === 'set-add-view') { addView = actionEl.dataset.view; render(); }
+    else if (action === 'save-assets') {
+      var stockVal = parseInt(document.getElementById('asset-stock').value, 10);
+      var debtVal = parseInt(document.getElementById('asset-debt').value, 10);
+      state.assets.stock = isNaN(stockVal) ? 0 : stockVal;
+      state.assets.debt = isNaN(debtVal) ? 0 : debtVal;
+      pushState();
+      showToast('자산이 저장되었습니다');
+    }
+    else if (action === 'save-income') { saveIncome(); }
+    else if (action === 'edit-income') {
+      pushNav({ editingIncomeId: actionEl.dataset.id });
+      scrollAppToTop();
+    }
+    else if (action === 'cancel-income-edit') { goBack(); }
+    else if (action === 'delete-income') {
+      if (!confirm('이 수입 내역을 삭제할까요?')) return;
+      var wasEditingIncome = actionEl.dataset.id === editingIncomeId;
+      state.income = state.income.filter(function (e) { return e.id !== actionEl.dataset.id; });
+      pushState();
+      showToast('삭제되었습니다');
+      if (wasEditingIncome) goBack();
+    }
     else if (action === 'refresh-app') { window.location.reload(); }
     else if (action === 'toggle-category') {
       var catId = actionEl.dataset.id;
@@ -768,6 +960,27 @@ import {
     else if (action === 'open-menu') { pushNav({ modal: 'menu' }); }
     else if (action === 'open-scheduler') { pushNav({ modal: 'scheduler', editingScheduleId: null }); }
     else if (action === 'open-trash') { pushNav({ modal: 'trash' }); }
+    else if (action === 'open-settings') { pushNav({ modal: 'settings' }); }
+    else if (action === 'add-debtitem') {
+      state.debtItems.push({ id: uid(), name: '', day: 25 });
+      pushState();
+    }
+    else if (action === 'delete-debtitem') {
+      state.debtItems = state.debtItems.filter(function (d) { return d.id !== actionEl.dataset.id; });
+      pushState();
+    }
+    else if (action === 'save-debtitems') {
+      document.querySelectorAll('#s-debtitems .settings-row').forEach(function (row) {
+        var id = row.dataset.debtId;
+        var item = state.debtItems.find(function (d) { return d.id === id; });
+        if (!item) return;
+        item.name = row.querySelector('.s-debt-name').value.trim() || item.name;
+        var day = parseInt(row.querySelector('.s-debt-day').value, 10);
+        item.day = (day >= 1 && day <= 31) ? day : item.day;
+      });
+      pushState();
+      showToast('저장되었습니다');
+    }
     else if (action === 'close-modal') { goBack(); }
     else if (action === 'edit-schedule') { pushNav({ editingScheduleId: actionEl.dataset.id }); }
     else if (action === 'cancel-schedule-edit') { goBack(); }
@@ -872,6 +1085,45 @@ import {
         (memo ? '\n메모: ' + memo : '');
       if (!confirm(newSummary)) return;
       state.expenses.push({ id: uid(), date: date, categoryId: categoryId, amount: amount, memo: memo });
+      pushState();
+      showToast('저장되었습니다');
+    }
+  }
+
+  function saveIncome() {
+    var date = document.getElementById('f-date').value || todayStr();
+    var source = document.getElementById('f-source').value.trim();
+    var amount = parseInt(document.getElementById('f-amount').value, 10);
+    var memo = document.getElementById('f-memo').value.trim();
+    if (!amount || amount <= 0) {
+      alert('금액을 입력해주세요.');
+      return;
+    }
+    if (editingIncomeId) {
+      var summary = '다음 내용으로 수정할까요?\n\n' +
+        '수입원: ' + (source || '수입') + '\n' +
+        '금액: ' + formatWon(amount) + '\n' +
+        '날짜: ' + date +
+        (memo ? '\n메모: ' + memo : '');
+      if (!confirm(summary)) return;
+      var existing = state.income.find(function (e) { return e.id === editingIncomeId; });
+      if (existing) {
+        existing.date = date;
+        existing.source = source;
+        existing.amount = amount;
+        existing.memo = memo;
+      }
+      pushState();
+      showToast('수정되었습니다');
+      goBack();
+    } else {
+      var newSummary = '다음 내용으로 등록할까요?\n\n' +
+        '수입원: ' + (source || '수입') + '\n' +
+        '금액: ' + formatWon(amount) + '\n' +
+        '날짜: ' + date +
+        (memo ? '\n메모: ' + memo : '');
+      if (!confirm(newSummary)) return;
+      state.income.push({ id: uid(), date: date, source: source, amount: amount, memo: memo });
       pushState();
       showToast('저장되었습니다');
     }
@@ -1081,7 +1333,7 @@ import {
 
   // ---------- Swipe left/right to switch tabs ----------
 
-  var TAB_ORDER = ['home', 'add', 'plan', 'settings'];
+  var TAB_ORDER = ['home', 'add', 'plan'];
   var touchStartX = 0, touchStartY = 0;
 
   document.body.addEventListener('touchstart', function (e) {
@@ -1097,8 +1349,11 @@ import {
     var dy = e.changedTouches[0].clientY - touchStartY;
     if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
     var idx = TAB_ORDER.indexOf(currentTab);
-    if (dx < 0 && idx < TAB_ORDER.length - 1) { currentTab = TAB_ORDER[idx + 1]; render(); }
-    else if (dx > 0 && idx > 0) { currentTab = TAB_ORDER[idx - 1]; render(); }
+    if (dx < 0 && idx < TAB_ORDER.length - 1) {
+      pushNav({ tab: TAB_ORDER[idx + 1], modal: null, editingId: null, editingIncomeId: null, editingScheduleId: null, expandedCategoryId: null });
+    } else if (dx > 0 && idx > 0) {
+      pushNav({ tab: TAB_ORDER[idx - 1], modal: null, editingId: null, editingIncomeId: null, editingScheduleId: null, expandedCategoryId: null });
+    }
   }, { passive: true });
 
   render(); // paint immediately from local cache while Firebase connects
