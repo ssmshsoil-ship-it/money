@@ -65,9 +65,6 @@ h2 { font-size: 15px; font-weight: 700; margin: 1.25rem 0 0.6rem; color: var(--t
 .pie-legend-pct { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .pie-legend-amt { color: var(--text-muted); font-size: 12px; text-align: right; min-width: 72px; }
 
-/* ---- Category usage hint (Add tab) ---- */
-.cat-pct-hint { font-size: 12px; color: var(--text-secondary); margin: -6px 0 0; }
-
 /* ---- Asset overview (Plan tab) ---- */
 .asset-row {
   display: flex; align-items: center; justify-content: space-between;

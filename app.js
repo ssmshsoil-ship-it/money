@@ -640,10 +640,8 @@ import {
     if (mode === 'expense') {
       html += '<label>카테고리</label>';
       html += '<div class="chip-group" id="f-cats">';
-      var selectedIdx = 0;
       state.categories.forEach(function (cat, i) {
         var isSelected = editingExpense ? cat.id === editingExpense.categoryId : i === 0;
-        if (isSelected) selectedIdx = i;
         var color = categoryColor(i);
         var style = isSelected
           ? 'background:' + color + ';border-color:' + color + ';color:#fff;'
@@ -651,7 +649,6 @@ import {
         html += '<div class="chip' + (isSelected ? ' selected' : '') + '" data-cat="' + cat.id + '" data-idx="' + i + '" style="' + style + '">' + escapeHtml(cat.name) + '</div>';
       });
       html += '</div>';
-      html += '<p class="cat-pct-hint" id="cat-pct-hint">' + categoryPctHint(state.categories[selectedIdx]) + '</p>';
     } else {
       html += '<label>수입원</label>';
       html += '<input type="text" id="f-source" placeholder="예: 급여, 용돈" value="' + (editingIncome ? escapeHtml(editingIncome.source || '') : '') + '">';
@@ -727,13 +724,6 @@ import {
     }
 
     app.innerHTML = html;
-  }
-
-  function categoryPctHint(cat) {
-    if (!cat) return '';
-    var spent = getCategoryTotal(currentViewMonth, cat.id);
-    var pct = Math.round((spent / cat.cap) * 100);
-    return '이번달 "' + escapeHtml(cat.name) + '" ' + pct + '% 사용 중 (' + formatWon(spent) + ' / ' + formatWon(cat.cap) + ')';
   }
 
   function renderPlan() {
@@ -872,8 +862,6 @@ import {
       chip.style.background = clickedColor;
       chip.style.borderColor = clickedColor;
       chip.style.color = '#fff';
-      var hintEl = document.getElementById('cat-pct-hint');
-      if (hintEl) hintEl.innerHTML = categoryPctHint(state.categories[clickedIdx]);
       return;
     }
 
