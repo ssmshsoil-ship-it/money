@@ -1155,7 +1155,7 @@ import {
 
     if (expandedCalendarDate) {
       var items = state.expenses.filter(function (e) { return e.date === expandedCalendarDate; });
-      html += '<h2>' + formatDateLabel(expandedCalendarDate) + ' 내역</h2>';
+      html += '<h2>' + formatDateLabel(expandedCalendarDate) + ' 내역 (눌러서 수정)</h2>';
       if (items.length === 0) {
         html += '<div class="empty-state">내역이 없습니다.</div>';
       } else {
@@ -1164,7 +1164,7 @@ import {
           var idx = state.categories.findIndex(function (c) { return c.id === e.categoryId; });
           var cat = idx > -1 ? state.categories[idx] : null;
           var dotColor = idx > -1 ? categoryColor(idx) : '#9ca3af';
-          html += '<div class="tx-row" style="grid-template-columns:1fr auto;">';
+          html += '<div class="tx-row cal-tx-row" style="grid-template-columns:1fr auto;" data-action="edit-expense-from-calendar" data-id="' + e.id + '">';
           html += '<div class="tx-main"><span class="tx-cat"><span class="tx-dot" style="background:' + dotColor + ';"></span>' + (cat ? categoryEmoji(cat.name) + ' ' : '') + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
           if (e.memo) html += '<span class="tx-memo">' + escapeHtml(e.memo) + '</span>';
           html += '</div>';
@@ -1344,6 +1344,10 @@ import {
       var clickedDate = actionEl.dataset.date;
       expandedCalendarDate = (expandedCalendarDate === clickedDate) ? null : clickedDate;
       renderModal();
+    }
+    else if (action === 'edit-expense-from-calendar') {
+      pushNav({ tab: 'add', modal: null, editingId: actionEl.dataset.id, editingIncomeId: null, editingScheduleId: null, expandedCategoryId: null });
+      scrollAppToTop();
     }
     else if (action === 'close-modal') { goBack(); }
     else if (action === 'edit-schedule') { pushNav({ editingScheduleId: actionEl.dataset.id }); }

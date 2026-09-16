@@ -298,6 +298,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 }
 .tx-row:last-child { border-bottom: none; }
 .tx-row.editing { background: var(--surface-2); margin: 0 -12px; padding: 13px 12px; border-radius: 8px; }
+.cal-tx-row { cursor: pointer; }
+.cal-tx-row:active { background: var(--surface-2); margin: 0 -12px; padding: 13px 12px; border-radius: 8px; }
 .tx-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .tx-cat { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; }
 .tx-dot {
