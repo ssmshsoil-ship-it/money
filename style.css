@@ -98,6 +98,11 @@ h2 { font-size: 15px; font-weight: 700; margin: 1.25rem 0 0.6rem; color: var(--t
 .asset-item-arrow { color: var(--text-muted); font-size: 16px; }
 
 /* ---- Cash flow card (Home tab) ---- */
+.cashflow-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+.cashflow-title { font-size: 14.5px; font-weight: 700; display: flex; align-items: center; }
+.cashflow-summary-amt { font-size: 16px; font-weight: 800; }
+.cashflow-summary-amt.negative { color: var(--danger); }
+.cashflow-detail { margin-top: 10px; }
 .cashflow-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 14px; }
 .cashflow-row.total { border-top: 0.5px solid var(--border); margin-top: 4px; padding-top: 10px; font-weight: 700; }
 .cashflow-amt { font-weight: 700; }

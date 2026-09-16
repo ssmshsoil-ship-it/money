@@ -39,6 +39,7 @@ import {
   var searchQuery = '';
   var homeView = 'expense'; // 'expense' | 'income'
   var addView = 'expense'; // 'expense' | 'income'
+  var cashFlowExpanded = false;
 
   // ---------- Unified navigation stack ----------
   // navStack[0] is always the root (home tab, nothing open). Every deeper
@@ -387,6 +388,8 @@ import {
     var root = document.getElementById('modalRoot');
     var view = currentModalView();
     if (!view) { root.innerHTML = ''; return; }
+    var existingSheet = root.querySelector('.modal-sheet');
+    var savedScroll = existingSheet ? existingSheet.scrollTop : 0;
     var inner = '';
     if (view === 'search') inner = renderSearchModal();
     else if (view === 'notifications') inner = renderNotificationsModal();
@@ -396,6 +399,8 @@ import {
     else if (view === 'asset-item') inner = renderAssetItemModal();
     else if (view === 'settings') inner = renderSettingsModal();
     root.innerHTML = '<div class="modal-overlay">' + inner + '</div>';
+    var newSheet = root.querySelector('.modal-sheet');
+    if (newSheet && savedScroll) newSheet.scrollTop = savedScroll;
     if (view === 'search') {
       var input = document.getElementById('search-input');
       if (input) {
@@ -751,25 +756,34 @@ import {
     var cardPaymentThisMonth = totalCardPaymentForMonth(currentViewMonth);
     var expectedBalance = incomeThisMonth - cardPaymentThisMonth;
 
-    html += '<h2>이번달 현금흐름</h2>';
     html += '<div class="card">';
-    html += '<div class="cashflow-row"><span>수입</span><span class="cashflow-amt income">' + formatWon(incomeThisMonth) + '</span></div>';
-    html += '<div class="cashflow-row"><span>카드결제 예정</span><span class="cashflow-amt expense">-' + formatWon(cardPaymentThisMonth) + '</span></div>';
-    html += '<div class="cashflow-row total"><span>예상 잔액</span><span class="cashflow-amt' + (expectedBalance < 0 ? ' negative' : '') + '">' + formatWon(expectedBalance) + '</span></div>';
-    if (state.cards.length === 0) {
-      html += '<p class="metric-sub" style="margin-top:10px;">"더보기 → 설정"에서 카드를 등록하면 결제일별로 이번달 결제예정액을 입력할 수 있습니다.</p>';
-    } else {
-      html += '<div style="margin-top:10px;">';
-      state.cards.slice().sort(function (a, b) { return (a.day || 99) - (b.day || 99); }).forEach(function (c) {
-        var monthData = state.cardPayments[currentViewMonth] || {};
-        var val = (monthData[c.id] !== undefined) ? monthData[c.id] : '';
-        html += '<div class="card-payment-row">';
-        html += '<span class="card-payment-name">' + escapeHtml(c.name) + (c.day ? ' <span class="card-payment-day">· 매월 ' + c.day + '일</span>' : '') + '</span>';
-        html += '<input type="number" class="card-payment-input" data-card="' + c.id + '" placeholder="0" inputmode="numeric" value="' + val + '">';
+    html += '<div class="cashflow-header" data-action="toggle-cashflow">';
+    html += '<span class="cashflow-title"><span class="cat-chevron">' + (cashFlowExpanded ? '▾' : '▸') + '</span> 이번달 현금흐름</span>';
+    html += '<span class="cashflow-summary-amt' + (expectedBalance < 0 ? ' negative' : '') + '">' + formatWon(expectedBalance) + '</span>';
+    html += '</div>';
+    if (cashFlowExpanded) {
+      html += '<div class="cashflow-detail">';
+      html += '<div class="cashflow-row"><span>수입</span><span class="cashflow-amt income">' + formatWon(incomeThisMonth) + '</span></div>';
+      html += '<div class="cashflow-row"><span>카드결제 예정</span><span class="cashflow-amt expense">-' + formatWon(cardPaymentThisMonth) + '</span></div>';
+      html += '<div class="cashflow-row total"><span>예상 잔액</span><span class="cashflow-amt' + (expectedBalance < 0 ? ' negative' : '') + '">' + formatWon(expectedBalance) + '</span></div>';
+      if (state.cards.length === 0) {
+        html += '<p class="metric-sub" style="margin-top:10px;">"더보기 → 설정"에서 카드를 등록하면 결제일별로 이번달 결제예정액을 입력할 수 있습니다.</p>';
+      } else {
+        html += '<div style="margin-top:10px;">';
+        state.cards.slice().sort(function (a, b) { return (a.day || 99) - (b.day || 99); }).forEach(function (c) {
+          var monthData = state.cardPayments[currentViewMonth] || {};
+          var val = (monthData[c.id] !== undefined) ? monthData[c.id] : '';
+          var displayVal = val !== '' ? Number(val).toLocaleString('ko-KR') : '';
+          html += '<div class="card-payment-row">';
+          html += '<span class="card-payment-name">' + escapeHtml(c.name) + (c.day ? ' <span class="card-payment-day">· 매월 ' + c.day + '일</span>' : '') + '</span>';
+          html += '<input type="text" class="card-payment-input" data-card="' + c.id + '" placeholder="0" inputmode="numeric" value="' + displayVal + '">';
+          html += '</div>';
+        });
         html += '</div>';
-      });
+        html += '<button class="btn" data-action="save-card-payments" style="margin-top:10px;">저장</button>';
+        html += '<p class="metric-sub" style="margin-top:8px;">카드사 앱에서 확인한 이번달 청구액을 직접 입력하세요(자동연동 안 됨).</p>';
+      }
       html += '</div>';
-      html += '<p class="metric-sub" style="margin-top:8px;">카드사 앱에서 확인한 이번달 청구액을 직접 입력하세요(자동연동 안 됨).</p>';
     }
     html += '</div>';
 
@@ -1170,6 +1184,8 @@ import {
       if (wasEditingIncome) goBack();
     }
     else if (action === 'refresh-app') { window.location.reload(); }
+    else if (action === 'toggle-cashflow') { cashFlowExpanded = !cashFlowExpanded; render(); }
+    else if (action === 'save-card-payments') { saveCardPayments(); }
     else if (action === 'toggle-category') {
       var catId = actionEl.dataset.id;
       if (expandedCategoryId === catId) goBack();
@@ -1282,13 +1298,6 @@ import {
       state.monthlySavings[mk] = val;
       pushState();
     }
-    if (e.target.classList.contains('card-payment-input')) {
-      var cardId = e.target.dataset.card;
-      var amt = parseInt(e.target.value, 10) || 0;
-      if (!state.cardPayments[currentViewMonth]) state.cardPayments[currentViewMonth] = {};
-      state.cardPayments[currentViewMonth][cardId] = amt;
-      pushState();
-    }
     if (e.target.id === 'ai-category') {
       var selCat = state.assetCategories.find(function (c) { return c.id === e.target.value; });
       var hintEl = document.getElementById('ai-amount-hint');
@@ -1304,6 +1313,10 @@ import {
     if (e.target.id === 'search-input') {
       searchQuery = e.target.value;
       renderModal();
+    }
+    if (e.target.classList.contains('card-payment-input')) {
+      var digits = e.target.value.replace(/[^0-9]/g, '');
+      e.target.value = digits ? parseInt(digits, 10).toLocaleString('ko-KR') : '';
     }
   });
 
@@ -1453,6 +1466,28 @@ import {
       if (!cat) return;
       cat.name = row.querySelector('.s-assetcat-name').value.trim() || cat.name;
       cat.type = row.querySelector('.s-assetcat-type').value;
+    });
+    pushState();
+    showToast('저장되었습니다');
+  }
+
+  function saveCardPayments() {
+    var inputs = document.querySelectorAll('.card-payment-input');
+    if (inputs.length === 0) return;
+    var entries = [];
+    inputs.forEach(function (inp) {
+      var cardId = inp.dataset.card;
+      var card = state.cards.find(function (c) { return c.id === cardId; });
+      var digits = inp.value.replace(/[^0-9]/g, '');
+      var amount = digits ? parseInt(digits, 10) : 0;
+      entries.push({ cardId: cardId, name: card ? card.name : '(이름없음)', amount: amount });
+    });
+    var summary = monthLabel(currentViewMonth) + ' 카드결제 예정액을 다음 내용으로 저장할까요?\n\n' +
+      entries.map(function (e) { return e.name + ': ' + formatWon(e.amount); }).join('\n');
+    if (!confirm(summary)) return;
+    if (!state.cardPayments[currentViewMonth]) state.cardPayments[currentViewMonth] = {};
+    entries.forEach(function (e) {
+      state.cardPayments[currentViewMonth][e.cardId] = e.amount;
     });
     pushState();
     showToast('저장되었습니다');
