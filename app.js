@@ -93,6 +93,7 @@ import {
   var editingScheduleId = null;
   var editingAssetItemId = null;
   var newAssetItemCategoryId = null;
+  var editingGoalId = null;
 
   function defaultState() {
     return {
@@ -124,7 +125,8 @@ import {
       ],
       assetItems: [],
       cards: [],
-      cardPayments: {}
+      cardPayments: {},
+      savingsGoals: []
     };
   }
 
@@ -233,6 +235,13 @@ import {
   function firstWeekdayOfMonth(mk) {
     var parts = mk.split('-').map(Number);
     return new Date(parts[0], parts[1] - 1, 1).getDay();
+  }
+  function projectCategorySpend(spent, mk) {
+    if (mk !== monthKeyOf(new Date())) return null; // only meaningful for the current real month
+    var daysElapsed = new Date().getDate();
+    var totalDays = daysInMonth(mk);
+    if (daysElapsed <= 0) return null;
+    return spent / daysElapsed * totalDays;
   }
   function formatDateLabel(dateStr) {
     var parts = dateStr.split('-').map(Number);
@@ -345,6 +354,39 @@ import {
     return '💰';
   }
 
+  var GOAL_EMOJI_RULES = [
+    [/여행|휴가/, '🏖️'],
+    [/비상금|비상/, '🚨'],
+    [/결혼/, '💍'],
+    [/차|자동차/, '🚗'],
+    [/집|주택|전세|이사/, '🏠'],
+    [/학자금|등록금|교육/, '🎓'],
+    [/출산|육아|아기/, '👶'],
+    [/노후|은퇴|연금/, '🌇'],
+    [/선물/, '🎁'],
+    [/가전|전자제품/, '📺']
+  ];
+  function goalEmoji(name) {
+    for (var i = 0; i < GOAL_EMOJI_RULES.length; i++) {
+      if (GOAL_EMOJI_RULES[i][0].test(name)) return GOAL_EMOJI_RULES[i][1];
+    }
+    return '🎯';
+  }
+
+  function projectGoalCompletion(goal) {
+    if (goal.currentAmount >= goal.targetAmount) return null; // already achieved
+    if (!goal.createdAt) return null;
+    var daysElapsed = Math.floor((new Date() - new Date(goal.createdAt)) / 86400000);
+    if (daysElapsed <= 0 || goal.currentAmount <= 0) return null;
+    var dailyRate = goal.currentAmount / daysElapsed;
+    if (dailyRate <= 0) return null;
+    var remaining = goal.targetAmount - goal.currentAmount;
+    var daysToGo = Math.ceil(remaining / dailyRate);
+    var projected = new Date();
+    projected.setDate(projected.getDate() + daysToGo);
+    return (projected.getFullYear()) + '년 ' + (projected.getMonth() + 1) + '월';
+  }
+
   var toastTimer1 = null, toastTimer2 = null;
   function showToast(msg) {
     clearTimeout(toastTimer1); clearTimeout(toastTimer2);
@@ -416,6 +458,7 @@ import {
     else if (view === 'asset-item') inner = renderAssetItemModal();
     else if (view === 'settings') inner = renderSettingsModal();
     else if (view === 'calendar') inner = renderCalendarModal();
+    else if (view === 'goal') inner = renderGoalModal();
     root.innerHTML = '<div class="modal-overlay">' + inner + '</div>';
     var newSheet = root.querySelector('.modal-sheet');
     if (newSheet && savedScroll) newSheet.scrollTop = savedScroll;
@@ -606,6 +649,31 @@ import {
     html += '<div style="margin-top:1rem;display:flex;gap:8px;">';
     html += '<button class="btn' + (editing ? ' editing' : '') + '" data-action="save-asset-item">' + (editing ? '수정저장' : '등록') + '</button>';
     if (editing) html += '<button class="btn danger" data-action="delete-asset-item" data-id="' + editing.id + '">삭제</button>';
+    html += '</div>';
+
+    html += '</div></div>';
+    return html;
+  }
+
+  function renderGoalModal() {
+    var editing = editingGoalId ? state.savingsGoals.find(function (g) { return g.id === editingGoalId; }) : null;
+    var html = '<div class="modal-sheet">';
+    html += '<div class="modal-header"><h2 class="modal-title">' + (editing ? '저축 목표 수정' : '저축 목표 추가') + '</h2><button class="modal-close" data-action="close-modal">✕</button></div>';
+    html += '<div class="modal-body">';
+
+    html += '<label>목표 이름</label>';
+    html += '<input type="text" id="g-name" placeholder="예: 여행자금, 비상금, 결혼자금" value="' + (editing ? escapeHtml(editing.name) : '') + '">';
+
+    html += '<label>목표 금액</label>';
+    html += '<input type="number" id="g-target" placeholder="예: 3000000" inputmode="numeric" value="' + (editing ? editing.targetAmount : '') + '">';
+
+    html += '<label>현재까지 모은 금액</label>';
+    html += '<input type="number" id="g-current" placeholder="예: 1200000 - 지금까지 모은 금액" inputmode="numeric" value="' + (editing ? editing.currentAmount : '0') + '">';
+    html += '<p class="metric-sub" style="margin:4px 0 0;">저축할 때마다 다시 들어와서 이 금액을 업데이트하면 진행률과 예상 달성일이 자동 계산됩니다.</p>';
+
+    html += '<div style="margin-top:1rem;display:flex;gap:8px;">';
+    html += '<button class="btn' + (editing ? ' editing' : '') + '" data-action="save-goal">' + (editing ? '수정저장' : '등록') + '</button>';
+    if (editing) html += '<button class="btn danger" data-action="delete-goal" data-id="' + editing.id + '">삭제</button>';
     html += '</div>';
 
     html += '</div></div>';
@@ -827,6 +895,12 @@ import {
       var overAmt = over ? ' <span class="cat-over-badge">(+' + formatWon(spent - cat.cap) + ')</span>' : '';
       html += '<div class="cat-row-top"><span><span class="cat-chevron">' + (isOpen ? '▾' : '▸') + '</span>' + categoryEmoji(cat.name) + ' ' + escapeHtml(cat.name) + overAmt + '</span><span class="amt"><span class="amt-spent' + (over ? ' over' : '') + '">' + formatWon(spent) + '</span> <span class="amt-sep">/</span> <span class="amt-cap">' + formatWon(cat.cap) + '</span></span></div>';
       html += '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%;background:' + color + ';"></div></div>';
+      if (!over) {
+        var projected = projectCategorySpend(spent, currentViewMonth);
+        if (projected !== null && projected > cat.cap) {
+          html += '<p class="cat-projection">이 페이스면 이번달 말 약 ' + formatWon(projected) + ' 예상 (상한 초과 예상)</p>';
+        }
+      }
       if (isOpen) {
         var items = getExpensesForMonth(currentViewMonth)
           .filter(function (e) { return e.categoryId === cat.id; })
@@ -985,11 +1059,12 @@ import {
     var netWorth = cumActual + totalAssetOther - totalDebt;
 
     var html = '';
-    html += topBar('12개월 저축 플랜');
+    html += topBar('저축플랜');
 
+    // ---- 1. 자산현황 ----
     html += '<h2>자산현황</h2>';
     html += '<div class="card">';
-    html += '<p class="metric-label">순자산 (저축 + 그 외 자산 − 빚)</p>';
+    html += '<p class="metric-label">순자산 (저축 + 그 외 자산 − 부채)</p>';
     html += '<p class="metric-value' + (netWorth < 0 ? ' negative' : '') + '">' + formatWon(netWorth) + '</p>';
     html += '</div>';
 
@@ -1000,8 +1075,9 @@ import {
     state.assetCategories.forEach(function (cat) {
       var items = state.assetItems.filter(function (it) { return it.categoryId === cat.id; });
       var subtotal = items.reduce(function (s, it) { return s + it.amount; }, 0);
+      var catLabel = cat.type === 'debt' ? escapeHtml(cat.name) + ' (부채)' : escapeHtml(cat.name);
       html += '<div class="card">';
-      html += '<div class="asset-section-head"><span class="asset-label"><span class="asset-dot ' + (cat.type === 'debt' ? 'debt' : 'stock') + '"></span>' + escapeHtml(cat.name) + (cat.type === 'debt' ? ' (부채)' : '') + '</span><span class="asset-value">' + formatWon(subtotal) + '</span></div>';
+      html += '<div class="asset-section-head"><span class="asset-label"><span class="asset-dot ' + (cat.type === 'debt' ? 'debt' : 'stock') + '"></span>' + catLabel + '</span><span class="asset-value">' + formatWon(subtotal) + '</span></div>';
       if (items.length === 0) {
         html += '<p class="metric-sub" style="margin:2px 0 0;">등록된 항목이 없습니다.</p>';
       } else {
@@ -1016,10 +1092,32 @@ import {
       html += '<button class="btn secondary small" data-action="open-asset-item" data-category="' + cat.id + '" style="margin-top:8px;">+ ' + escapeHtml(cat.name) + ' 항목 추가</button>';
       html += '</div>';
     });
+    html += '<p class="metric-sub" style="margin-bottom:1.4rem;">자산·부채 항목은 현재 잔액을 그때그때 직접 업데이트하는 방식입니다(누적 관리).</p>';
 
-    html += '<p class="metric-sub" style="margin-bottom:1rem;">자산·빚 항목은 현재 잔액을 그때그때 직접 업데이트하는 방식입니다(누적 관리). 저축은 저축플랜 표에서 자동 계산됩니다.</p>';
+    // ---- 2. 저축 목표 (다중 목표) ----
+    html += '<h2>저축 목표</h2>';
+    if (state.savingsGoals.length === 0) {
+      html += '<div class="card"><p class="metric-sub" style="margin:0;">여행자금, 비상금처럼 이름 붙인 목표를 만들어 따로 모아보세요.</p></div>';
+    } else {
+      state.savingsGoals.forEach(function (g) {
+        var pct = g.targetAmount > 0 ? Math.min(100, Math.round(g.currentAmount / g.targetAmount * 100)) : 0;
+        var achieved = g.currentAmount >= g.targetAmount;
+        var projection = projectGoalCompletion(g);
+        html += '<div class="card goal-card" data-action="open-goal" data-id="' + g.id + '">';
+        html += '<div class="goal-head"><span class="goal-emoji">' + goalEmoji(g.name) + '</span><span class="goal-name">' + escapeHtml(g.name) + '</span>' +
+          (achieved ? '<span class="goal-achieved-badge">달성!</span>' : '') + '</div>';
+        html += '<div class="progress-track"><div class="progress-fill' + (achieved ? ' achieved' : '') + '" style="width:' + pct + '%;"></div></div>';
+        html += '<div class="goal-foot"><span>' + formatWon(g.currentAmount) + ' / ' + formatWon(g.targetAmount) + ' (' + pct + '%)</span>';
+        if (achieved) html += '<span class="goal-proj">🎉</span>';
+        else if (projection) html += '<span class="goal-proj">예상 달성: ' + projection + '</span>';
+        html += '</div>';
+        html += '</div>';
+      });
+    }
+    html += '<button class="btn secondary small" data-action="open-goal" style="margin-bottom:1.4rem;">+ 저축 목표 추가</button>';
 
-    html += '<h2>저축누계</h2>';
+    // ---- 3. 월별 저축 습관 ----
+    html += '<h2>월별 저축 습관</h2>';
     html += '<div class="card">';
     html += '<p class="metric-label">저축누계</p>';
     html += '<p class="metric-value">' + formatWon(cumActual) + ' <span class="metric-sub">/ ' + formatWon(cumTarget) + '</span></p>';
@@ -1114,6 +1212,21 @@ import {
     return html;
   }
 
+  function computeNoSpendStreak() {
+    var dayTotals = {};
+    state.expenses.forEach(function (e) { dayTotals[e.date] = (dayTotals[e.date] || 0) + e.amount; });
+    var streak = 0;
+    var cursor = new Date();
+    cursor.setHours(0, 0, 0, 0);
+    for (var i = 0; i < 90; i++) {
+      var dateStr = cursor.getFullYear() + '-' + String(cursor.getMonth() + 1).padStart(2, '0') + '-' + String(cursor.getDate()).padStart(2, '0');
+      if ((dayTotals[dateStr] || 0) > 0) break;
+      streak++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return streak;
+  }
+
   function renderCalendarModal() {
     var monthExpenses = getExpensesForMonth(calendarViewMonth);
     var monthTotal = monthExpenses.reduce(function (s, e) { return s + e.amount; }, 0);
@@ -1121,6 +1234,7 @@ import {
     monthExpenses.forEach(function (e) {
       dayTotals[e.date] = (dayTotals[e.date] || 0) + e.amount;
     });
+    var streak = computeNoSpendStreak();
 
     var html = '<div class="modal-sheet">';
     html += '<div class="modal-header"><h2 class="modal-title">달력</h2><button class="modal-close" data-action="close-modal">✕</button></div>';
@@ -1131,7 +1245,11 @@ import {
     html += '<button data-action="calendar-next-month">›</button>';
     html += '</div>';
 
-    html += '<p class="metric-value" style="margin-bottom:10px;">' + formatWon(monthTotal) + '</p>';
+    html += '<p class="metric-value" style="margin-bottom:6px;">' + formatWon(monthTotal) + '</p>';
+    if (streak > 0) {
+      html += '<p class="no-spend-streak">🔥 연속 무지출 ' + streak + '일째</p>';
+    }
+    html += '<div style="margin-bottom:10px;"></div>';
 
     html += '<div class="cal-grid">';
     ['일', '월', '화', '수', '목', '금', '토'].forEach(function (wd) {
@@ -1139,16 +1257,20 @@ import {
     });
     var startWeekday = firstWeekdayOfMonth(calendarViewMonth);
     var numDays = daysInMonth(calendarViewMonth);
+    var todayStrVal = todayStr();
     for (var i = 0; i < startWeekday; i++) html += '<div class="cal-cell empty"></div>';
     for (var d = 1; d <= numDays; d++) {
       var dateStr = calendarViewMonth + '-' + String(d).padStart(2, '0');
       var dayTotal = dayTotals[dateStr] || 0;
       var hasExpense = dayTotal > 0;
+      var isPastOrToday = dateStr <= todayStrVal;
+      var isNoSpend = !hasExpense && isPastOrToday;
       var isSelected = expandedCalendarDate === dateStr;
-      html += '<div class="cal-cell' + (hasExpense ? ' has-expense' : '') + (isSelected ? ' selected' : '') + '"' +
+      html += '<div class="cal-cell' + (hasExpense ? ' has-expense' : '') + (isSelected ? ' selected' : '') + (isNoSpend ? ' no-spend' : '') + '"' +
         (hasExpense ? ' data-action="toggle-calendar-date" data-date="' + dateStr + '"' : '') + '>';
       html += '<span class="cal-day-num">' + d + '</span>';
       if (hasExpense) html += '<span class="cal-day-total">' + dayTotal.toLocaleString('ko-KR') + '</span>';
+      else if (isNoSpend) html += '<span class="cal-day-total no-spend-mark">✓</span>';
       html += '</div>';
     }
     html += '</div>';
@@ -1230,6 +1352,18 @@ import {
     else if (action === 'delete-asset-item') {
       if (!confirm('이 자산 항목을 삭제할까요?')) return;
       state.assetItems = state.assetItems.filter(function (i) { return i.id !== actionEl.dataset.id; });
+      pushState();
+      showToast('삭제되었습니다');
+      goBack();
+    }
+    else if (action === 'open-goal') {
+      editingGoalId = actionEl.dataset.id || null;
+      pushNav({ modal: 'goal' });
+    }
+    else if (action === 'save-goal') { saveGoal(); }
+    else if (action === 'delete-goal') {
+      if (!confirm('이 저축 목표를 삭제할까요?')) return;
+      state.savingsGoals = state.savingsGoals.filter(function (g) { return g.id !== actionEl.dataset.id; });
       pushState();
       showToast('삭제되었습니다');
       goBack();
@@ -1532,6 +1666,37 @@ import {
       state.schedules.push({ id: uid(), date: date, title: title, memo: memo });
       pushState();
       showToast('일정이 등록되었습니다');
+    }
+  }
+
+  function saveGoal() {
+    var name = document.getElementById('g-name').value.trim();
+    var target = parseInt(document.getElementById('g-target').value, 10);
+    var current = parseInt(document.getElementById('g-current').value, 10);
+    if (!name) {
+      alert('목표 이름을 입력해주세요.');
+      return;
+    }
+    if (isNaN(target) || target <= 0) {
+      alert('목표 금액을 입력해주세요.');
+      return;
+    }
+    if (isNaN(current) || current < 0) current = 0;
+    if (editingGoalId) {
+      var existing = state.savingsGoals.find(function (g) { return g.id === editingGoalId; });
+      if (existing) {
+        existing.name = name;
+        existing.targetAmount = target;
+        existing.currentAmount = current;
+      }
+      pushState();
+      showToast('수정되었습니다');
+      goBack();
+    } else {
+      state.savingsGoals.push({ id: uid(), name: name, targetAmount: target, currentAmount: current, createdAt: new Date().toISOString() });
+      pushState();
+      showToast('저장되었습니다');
+      goBack();
     }
   }
 
