@@ -88,6 +88,8 @@ import {
   var editingIncomeId = null;
   var expandedCategoryId = null;
   var editingScheduleId = null;
+  var editingAssetItemId = null;
+  var newAssetItemCategoryId = null;
 
   function defaultState() {
     return {
@@ -110,8 +112,14 @@ import {
       monthlySavings: {},
       schedules: [],
       trash: [],
-      debtItems: [],
-      stockItems: []
+      assetCategories: [
+        { id: 'ac-stock', name: '주식', type: 'asset' },
+        { id: 'ac-deposit', name: '적금/예금', type: 'asset' },
+        { id: 'ac-pension', name: '연금저축', type: 'asset' },
+        { id: 'ac-coin', name: '코인', type: 'asset' },
+        { id: 'ac-debt', name: '대출', type: 'debt' }
+      ],
+      assetItems: []
     };
   }
 
@@ -374,6 +382,7 @@ import {
     else if (view === 'menu') inner = renderMenuModal();
     else if (view === 'scheduler') inner = renderSchedulerModal();
     else if (view === 'trash') inner = renderTrashModal();
+    else if (view === 'asset-item') inner = renderAssetItemModal();
     else if (view === 'settings') inner = renderSettingsModal();
     root.innerHTML = '<div class="modal-overlay">' + inner + '</div>';
     if (view === 'search') {
@@ -525,6 +534,59 @@ import {
     return html;
   }
 
+  function renderAssetItemModal() {
+    var editing = editingAssetItemId ? state.assetItems.find(function (i) { return i.id === editingAssetItemId; }) : null;
+    var currentCategoryId = editing ? editing.categoryId : (newAssetItemCategoryId || (state.assetCategories[0] && state.assetCategories[0].id));
+    var currentCat = state.assetCategories.find(function (c) { return c.id === currentCategoryId; });
+    var isDebt = currentCat && currentCat.type === 'debt';
+
+    var html = '<div class="modal-sheet">';
+    html += '<div class="modal-header"><h2 class="modal-title">' + (editing ? '자산 항목 수정' : '자산 항목 추가') + '</h2><button class="modal-close" data-action="close-modal">✕</button></div>';
+    html += '<div class="modal-body">';
+
+    html += '<label>카테고리</label>';
+    html += '<select id="ai-category">';
+    state.assetCategories.forEach(function (c) {
+      var sel = c.id === currentCategoryId ? ' selected' : '';
+      html += '<option value="' + c.id + '"' + sel + '>' + escapeHtml(c.name) + (c.type === 'debt' ? ' (부채)' : ' (자산)') + '</option>';
+    });
+    html += '</select>';
+    html += '<p class="metric-sub" style="margin:4px 0 0;">카테고리를 새로 추가하려면 "더보기 → 설정"에서 "자산 카테고리"를 편집하세요.</p>';
+
+    html += '<label>이름</label>';
+    html += '<input type="text" id="ai-name" placeholder="예: 삼성전자, 신한은행 적금, 신한대출" value="' + (editing ? escapeHtml(editing.name) : '') + '">';
+
+    html += '<label>금액 (현재 잔액)</label>';
+    html += '<input type="number" id="ai-amount" placeholder="예: 1200000 - 지금 시점의 잔액을 입력하세요" inputmode="numeric" value="' + (editing ? editing.amount : '') + '">';
+    html += '<p class="metric-sub" id="ai-amount-hint" style="margin:4px 0 0;">' + (isDebt ? '대출 등 부채는 남은 상환 잔액을 입력하세요. 갚을수록 이 금액을 줄여나가면 됩니다.' : '주식·예금 등은 현재 평가금액/잔액을 입력하세요. 값이 바뀔 때마다 다시 들어와 수정하면 됩니다.') + '</p>';
+
+    html += '<label>매월 고정일 (선택, 대출 상환일 등)</label>';
+    html += '<input type="number" id="ai-day" placeholder="예: 25 (해당 없으면 비워두세요)" min="1" max="31" value="' + (editing && editing.day ? editing.day : '') + '">';
+
+    html += '<label>메모 (선택)</label>';
+    html += '<input type="text" id="ai-memo" placeholder="" value="' + (editing ? escapeHtml(editing.memo || '') : '') + '">';
+
+    html += '<div style="margin-top:1rem;display:flex;gap:8px;">';
+    html += '<button class="btn' + (editing ? ' editing' : '') + '" data-action="save-asset-item">' + (editing ? '수정저장' : '등록') + '</button>';
+    if (editing) html += '<button class="btn danger" data-action="delete-asset-item" data-id="' + editing.id + '">삭제</button>';
+    html += '</div>';
+
+    html += '</div></div>';
+    return html;
+  }
+
+  function polarPoint(cx, cy, r, angleDeg) {
+    var rad = angleDeg * Math.PI / 180;
+    return { x: cx + r * Math.sin(rad), y: cy - r * Math.cos(rad) };
+  }
+  function pieSlicePath(cx, cy, r, startAngle, endAngle) {
+    var p1 = polarPoint(cx, cy, r, startAngle);
+    var p2 = polarPoint(cx, cy, r, endAngle);
+    var largeArc = (endAngle - startAngle) > 180 ? 1 : 0;
+    return 'M' + cx + ',' + cy + ' L' + p1.x.toFixed(2) + ',' + p1.y.toFixed(2) +
+      ' A' + r + ',' + r + ' 0 ' + largeArc + ',1 ' + p2.x.toFixed(2) + ',' + p2.y.toFixed(2) + ' Z';
+  }
+
   function buildPieChart(data) {
     var total = data.totalSpent;
     if (total <= 0) return '<div class="empty-state">이번달 지출 내역이 없습니다.</div>';
@@ -536,14 +598,27 @@ import {
     });
     items.sort(function (a, b) { return b.spent - a.spent; });
 
-    var gradientParts = [];
+    var cx = 100, cy = 100, r = 92;
     var cursor = 0;
+    var svgParts = '';
+    var LABEL_THRESHOLD = 6; // only label slices at least this big, to avoid crowding
     items.forEach(function (item) {
-      var start = cursor, end = cursor + item.pct;
-      gradientParts.push(item.color + ' ' + start.toFixed(2) + '% ' + end.toFixed(2) + '%');
-      cursor = end;
+      var startAngle = cursor / 100 * 360;
+      var endAngle = (cursor + item.pct) / 100 * 360;
+      if (items.length === 1) {
+        svgParts += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + item.color + '"/>';
+      } else {
+        svgParts += '<path d="' + pieSlicePath(cx, cy, r, startAngle, endAngle) + '" fill="' + item.color + '"/>';
+      }
+      if (item.pct >= LABEL_THRESHOLD) {
+        var mid = (startAngle + endAngle) / 2;
+        var lp = polarPoint(cx, cy, r * 0.66, mid);
+        svgParts += '<text x="' + lp.x.toFixed(1) + '" y="' + lp.y.toFixed(1) + '" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="15" font-weight="700">' + Math.round(item.pct) + '%</text>';
+      }
+      cursor += item.pct;
     });
-    var gradient = 'conic-gradient(' + gradientParts.join(',') + ')';
+
+    var svg = '<svg viewBox="0 0 200 200" class="pie-svg" role="img" aria-label="카테고리별 지출 비중 원그래프">' + svgParts + '</svg>';
 
     var legendHtml = items.map(function (item) {
       return '<div class="pie-legend-row">' +
@@ -554,7 +629,7 @@ import {
         '</div>';
     }).join('');
 
-    return '<div class="pie-wrap"><div class="pie-chart" style="background:' + gradient + ';"></div></div>' +
+    return '<div class="pie-wrap">' + svg + '</div>' +
       '<div class="pie-legend">' + legendHtml + '</div>';
   }
 
@@ -771,16 +846,20 @@ import {
       cumTarget += state.savingsGoal;
       cumActual += (state.monthlySavings[mk] || 0);
     });
-    var totalDebt = state.debtItems.reduce(function (s, d) { return s + d.amount; }, 0);
-    var totalStock = state.stockItems.reduce(function (s, i) { return s + i.amount; }, 0);
-    var netWorth = cumActual + totalStock - totalDebt;
+    var totalAssetOther = 0, totalDebt = 0;
+    state.assetItems.forEach(function (it) {
+      var cat = state.assetCategories.find(function (c) { return c.id === it.categoryId; });
+      if (cat && cat.type === 'debt') totalDebt += it.amount;
+      else totalAssetOther += it.amount;
+    });
+    var netWorth = cumActual + totalAssetOther - totalDebt;
 
     var html = '';
     html += topBar('12개월 저축 플랜');
 
     html += '<h2>자산현황</h2>';
     html += '<div class="card">';
-    html += '<p class="metric-label">순자산 (저축 + 주식 − 빚)</p>';
+    html += '<p class="metric-label">순자산 (저축 + 그 외 자산 − 빚)</p>';
     html += '<p class="metric-value' + (netWorth < 0 ? ' negative' : '') + '">' + formatWon(netWorth) + '</p>';
     html += '</div>';
 
@@ -788,37 +867,27 @@ import {
     html += '<div class="asset-row"><span class="asset-label"><span class="asset-dot savings"></span>저축 (자동계산)</span><span class="asset-value">' + formatWon(cumActual) + '</span></div>';
     html += '</div>';
 
-    html += '<div class="card">';
-    html += '<div class="asset-section-head"><span class="asset-label"><span class="asset-dot stock"></span>주식</span><span class="asset-value">' + formatWon(totalStock) + '</span></div>';
-    html += '<div id="stock-items">';
-    state.stockItems.forEach(function (s) {
-      html += '<div class="settings-row" data-stock-id="' + s.id + '">';
-      html += '<input type="text" class="s-stock-name" placeholder="예: 삼성전자" value="' + escapeHtml(s.name) + '">';
-      html += '<input type="number" class="s-stock-amount" placeholder="금액" value="' + s.amount + '" inputmode="numeric">';
-      html += '<button class="tx-del" data-action="delete-stock-item" data-id="' + s.id + '">×</button>';
+    state.assetCategories.forEach(function (cat) {
+      var items = state.assetItems.filter(function (it) { return it.categoryId === cat.id; });
+      var subtotal = items.reduce(function (s, it) { return s + it.amount; }, 0);
+      html += '<div class="card">';
+      html += '<div class="asset-section-head"><span class="asset-label"><span class="asset-dot ' + (cat.type === 'debt' ? 'debt' : 'stock') + '"></span>' + escapeHtml(cat.name) + (cat.type === 'debt' ? ' (부채)' : '') + '</span><span class="asset-value">' + formatWon(subtotal) + '</span></div>';
+      if (items.length === 0) {
+        html += '<p class="metric-sub" style="margin:2px 0 0;">등록된 항목이 없습니다.</p>';
+      } else {
+        items.forEach(function (it) {
+          html += '<div class="asset-item-row" data-action="open-asset-item" data-id="' + it.id + '">';
+          html += '<span class="asset-item-name">' + escapeHtml(it.name || '(이름 없음)') + (it.day ? ' <span class="asset-item-day">· 매월 ' + it.day + '일</span>' : '') + '</span>';
+          html += '<span class="asset-item-amt">' + formatWon(it.amount) + '</span>';
+          html += '<span class="asset-item-arrow">›</span>';
+          html += '</div>';
+        });
+      }
+      html += '<button class="btn secondary small" data-action="open-asset-item" data-category="' + cat.id + '" style="margin-top:8px;">+ ' + escapeHtml(cat.name) + ' 항목 추가</button>';
       html += '</div>';
     });
-    html += '</div>';
-    html += '<button class="btn secondary small" data-action="add-stock-item" style="margin-top:6px;">+ 주식 항목 추가</button>';
-    html += '</div>';
 
-    html += '<div class="card">';
-    html += '<div class="asset-section-head"><span class="asset-label"><span class="asset-dot debt"></span>빚</span><span class="asset-value">' + formatWon(totalDebt) + '</span></div>';
-    html += '<div id="debt-items">';
-    state.debtItems.forEach(function (d) {
-      html += '<div class="settings-row" data-debt-id="' + d.id + '">';
-      html += '<input type="text" class="s-debt-name" placeholder="예: 신한대출" value="' + escapeHtml(d.name) + '">';
-      html += '<input type="number" class="s-debt-amount" placeholder="금액" value="' + d.amount + '" inputmode="numeric">';
-      html += '<input type="number" class="s-debt-day" placeholder="일" min="1" max="31" value="' + d.day + '" inputmode="numeric" style="flex:0 0 52px;">';
-      html += '<button class="tx-del" data-action="delete-debt-item" data-id="' + d.id + '">×</button>';
-      html += '</div>';
-    });
-    html += '</div>';
-    html += '<button class="btn secondary small" data-action="add-debt-item" style="margin-top:6px;">+ 빚 항목 추가</button>';
-    html += '</div>';
-
-    html += '<button class="btn" data-action="save-assets" style="margin-bottom:0.5rem;">자산 저장</button>';
-    html += '<p class="metric-sub" style="margin-bottom:1rem;">빚·주식은 현재 잔액을 그때그때 직접 업데이트하는 방식입니다. 저축은 저축플랜 표에서 자동 계산됩니다.</p>';
+    html += '<p class="metric-sub" style="margin-bottom:1rem;">자산·빚 항목은 현재 잔액을 그때그때 직접 업데이트하는 방식입니다(누적 관리). 저축은 저축플랜 표에서 자동 계산됩니다.</p>';
 
     html += '<h2>저축누계</h2>';
     html += '<div class="card">';
@@ -869,7 +938,22 @@ import {
 
     html += '<div style="margin-top:1rem;"><button class="btn" data-action="save-settings">설정 저장</button></div>';
 
-    html += '<p class="metric-sub" style="margin-top:1rem;">빚·주식 관리는 "저축플랜" 탭의 "자산현황"으로 옮겼습니다.</p>';
+    html += '<h2>자산 카테고리</h2>';
+    html += '<p class="metric-sub" style="margin:0 0 8px;">저축플랜 탭의 "자산현황"에서 쓰이는 분류입니다. 세부 항목(삼성전자, 신한대출 등)은 저축플랜 탭에서 추가하세요.</p>';
+    html += '<div class="card" id="s-asset-categories">';
+    state.assetCategories.forEach(function (c) {
+      html += '<div class="settings-row" data-asset-cat-id="' + c.id + '">';
+      html += '<input type="text" class="s-assetcat-name" placeholder="예: 코인" value="' + escapeHtml(c.name) + '">';
+      html += '<select class="s-assetcat-type" style="flex:1;">';
+      html += '<option value="asset"' + (c.type === 'asset' ? ' selected' : '') + '>자산</option>';
+      html += '<option value="debt"' + (c.type === 'debt' ? ' selected' : '') + '>부채</option>';
+      html += '</select>';
+      html += '<button class="tx-del" data-action="delete-asset-category" data-id="' + c.id + '">×</button>';
+      html += '</div>';
+    });
+    html += '<button class="btn secondary small" data-action="add-asset-category" style="margin-top:6px;">+ 카테고리 추가</button>';
+    html += '</div>';
+    html += '<div style="margin-top:0.8rem;"><button class="btn" data-action="save-asset-categories">자산 카테고리 저장</button></div>';
 
     html += '<h2>데이터 백업 (로컬 파일)</h2>';
     html += '<div class="card">';
@@ -928,23 +1012,31 @@ import {
     else if (action === 'next-month') { currentViewMonth = shiftMonth(currentViewMonth, 1); render(); }
     else if (action === 'set-home-view') { homeView = actionEl.dataset.view; render(); }
     else if (action === 'set-add-view') { addView = actionEl.dataset.view; render(); }
-    else if (action === 'save-assets') { saveAssets(); }
-    else if (action === 'add-debt-item') {
-      state.debtItems.push({ id: uid(), name: '', amount: 0, day: 25 });
+    else if (action === 'open-asset-item') {
+      if (actionEl.dataset.id) { editingAssetItemId = actionEl.dataset.id; newAssetItemCategoryId = null; }
+      else { editingAssetItemId = null; newAssetItemCategoryId = actionEl.dataset.category || null; }
+      pushNav({ modal: 'asset-item' });
+    }
+    else if (action === 'save-asset-item') { saveAssetItem(); }
+    else if (action === 'delete-asset-item') {
+      if (!confirm('이 자산 항목을 삭제할까요?')) return;
+      state.assetItems = state.assetItems.filter(function (i) { return i.id !== actionEl.dataset.id; });
+      pushState();
+      showToast('삭제되었습니다');
+      goBack();
+    }
+    else if (action === 'add-asset-category') {
+      state.assetCategories.push({ id: uid(), name: '', type: 'asset' });
       pushState();
     }
-    else if (action === 'delete-debt-item') {
-      state.debtItems = state.debtItems.filter(function (d) { return d.id !== actionEl.dataset.id; });
+    else if (action === 'delete-asset-category') {
+      var hasItems = state.assetItems.some(function (i) { return i.categoryId === actionEl.dataset.id; });
+      if (hasItems && !confirm('이 카테고리에 속한 자산 항목도 함께 삭제됩니다. 계속할까요?')) return;
+      state.assetCategories = state.assetCategories.filter(function (c) { return c.id !== actionEl.dataset.id; });
+      state.assetItems = state.assetItems.filter(function (i) { return i.categoryId !== actionEl.dataset.id; });
       pushState();
     }
-    else if (action === 'add-stock-item') {
-      state.stockItems.push({ id: uid(), name: '', amount: 0 });
-      pushState();
-    }
-    else if (action === 'delete-stock-item') {
-      state.stockItems = state.stockItems.filter(function (s) { return s.id !== actionEl.dataset.id; });
-      pushState();
-    }
+    else if (action === 'save-asset-categories') { saveAssetCategories(); }
     else if (action === 'save-income') { saveIncome(); }
     else if (action === 'edit-income') {
       pushNav({ editingIncomeId: actionEl.dataset.id });
@@ -1072,6 +1164,15 @@ import {
       state.monthlySavings[mk] = val;
       pushState();
     }
+    if (e.target.id === 'ai-category') {
+      var selCat = state.assetCategories.find(function (c) { return c.id === e.target.value; });
+      var hintEl = document.getElementById('ai-amount-hint');
+      if (hintEl && selCat) {
+        hintEl.textContent = selCat.type === 'debt'
+          ? '대출 등 부채는 남은 상환 잔액을 입력하세요. 갚을수록 이 금액을 줄여나가면 됩니다.'
+          : '주식·예금 등은 현재 평가금액/잔액을 입력하세요. 값이 바뀔 때마다 다시 들어와 수정하면 됩니다.';
+      }
+    }
   });
 
   document.body.addEventListener('input', function (e) {
@@ -1186,25 +1287,50 @@ import {
     }
   }
 
-  function saveAssets() {
-    document.querySelectorAll('#debt-items .settings-row').forEach(function (row) {
-      var item = state.debtItems.find(function (d) { return d.id === row.dataset.debtId; });
-      if (!item) return;
-      item.name = row.querySelector('.s-debt-name').value.trim() || item.name;
-      var amount = parseInt(row.querySelector('.s-debt-amount').value, 10);
-      item.amount = isNaN(amount) ? 0 : amount;
-      var day = parseInt(row.querySelector('.s-debt-day').value, 10);
-      item.day = (day >= 1 && day <= 31) ? day : item.day;
-    });
-    document.querySelectorAll('#stock-items .settings-row').forEach(function (row) {
-      var item = state.stockItems.find(function (s) { return s.id === row.dataset.stockId; });
-      if (!item) return;
-      item.name = row.querySelector('.s-stock-name').value.trim() || item.name;
-      var amount = parseInt(row.querySelector('.s-stock-amount').value, 10);
-      item.amount = isNaN(amount) ? 0 : amount;
+  function saveAssetItem() {
+    var categoryId = document.getElementById('ai-category').value;
+    var name = document.getElementById('ai-name').value.trim();
+    var amount = parseInt(document.getElementById('ai-amount').value, 10);
+    var day = parseInt(document.getElementById('ai-day').value, 10);
+    var memo = document.getElementById('ai-memo').value.trim();
+    if (!name) {
+      alert('이름을 입력해주세요.');
+      return;
+    }
+    if (isNaN(amount) || amount < 0) {
+      alert('금액을 입력해주세요.');
+      return;
+    }
+    var dayVal = (day >= 1 && day <= 31) ? day : null;
+    if (editingAssetItemId) {
+      var existing = state.assetItems.find(function (i) { return i.id === editingAssetItemId; });
+      if (existing) {
+        existing.categoryId = categoryId;
+        existing.name = name;
+        existing.amount = amount;
+        existing.day = dayVal;
+        existing.memo = memo;
+      }
+      pushState();
+      showToast('수정되었습니다');
+      goBack();
+    } else {
+      state.assetItems.push({ id: uid(), categoryId: categoryId, name: name, amount: amount, day: dayVal, memo: memo });
+      pushState();
+      showToast('저장되었습니다');
+      goBack();
+    }
+  }
+
+  function saveAssetCategories() {
+    document.querySelectorAll('#s-asset-categories .settings-row').forEach(function (row) {
+      var cat = state.assetCategories.find(function (c) { return c.id === row.dataset.assetCatId; });
+      if (!cat) return;
+      cat.name = row.querySelector('.s-assetcat-name').value.trim() || cat.name;
+      cat.type = row.querySelector('.s-assetcat-type').value;
     });
     pushState();
-    showToast('자산이 저장되었습니다');
+    showToast('저장되었습니다');
   }
 
   function saveSettings() {
