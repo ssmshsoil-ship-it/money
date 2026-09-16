@@ -598,6 +598,45 @@ import {
       ' A' + r + ',' + r + ' 0 ' + largeArc + ',1 ' + p2.x.toFixed(2) + ',' + p2.y.toFixed(2) + ' Z';
   }
 
+  function layoutCalloutLabels(items, cx, cy, r, minGap, topBound, bottomBound) {
+    var withMid = items.map(function (it) {
+      var mid = (it.startAngle + it.endAngle) / 2;
+      var attach = polarPoint(cx, cy, r, mid);
+      return Object.assign({}, it, { mid: mid, attachX: attach.x, attachY: attach.y });
+    });
+    var rightSide = [], leftSide = [];
+    withMid.forEach(function (it) {
+      var rad = it.mid * Math.PI / 180;
+      if (Math.sin(rad) >= 0) rightSide.push(it); else leftSide.push(it);
+    });
+    function layoutSide(arr) {
+      arr.sort(function (a, b) { return a.attachY - b.attachY; });
+      var n = arr.length;
+      if (n === 0) return arr;
+      var y = arr.map(function (it) { return Math.max(topBound, Math.min(bottomBound, it.attachY)); });
+      for (var i = 1; i < n; i++) {
+        if (y[i] - y[i - 1] < minGap) y[i] = y[i - 1] + minGap;
+      }
+      var overflow = y[n - 1] - bottomBound;
+      if (overflow > 0) {
+        for (var j = 0; j < n; j++) y[j] -= overflow;
+        if (y[0] < topBound) {
+          var deficit = topBound - y[0];
+          for (var k = 0; k < n; k++) y[k] += deficit;
+        }
+      }
+      arr.forEach(function (it, idx) { it.labelY = y[idx]; });
+      return arr;
+    }
+    layoutSide(rightSide);
+    layoutSide(leftSide);
+    return { rightSide: rightSide, leftSide: leftSide };
+  }
+
+  function truncateLabel(name) {
+    return name.length > 7 ? name.slice(0, 6) + '…' : name;
+  }
+
   function buildPieChart(data) {
     var total = data.totalSpent;
     if (total <= 0) return '<div class="empty-state">이번달 지출 내역이 없습니다.</div>';
@@ -609,27 +648,46 @@ import {
     });
     items.sort(function (a, b) { return b.spent - a.spent; });
 
-    var cx = 100, cy = 100, r = 92;
+    var cx = 170, cy = 115, r = 62;
     var cursor = 0;
-    var svgParts = '';
-    var LABEL_THRESHOLD = 6; // only label slices at least this big, to avoid crowding
+    var svgSlices = '';
     items.forEach(function (item) {
-      var startAngle = cursor / 100 * 360;
-      var endAngle = (cursor + item.pct) / 100 * 360;
+      item.startAngle = cursor / 100 * 360;
+      item.endAngle = (cursor + item.pct) / 100 * 360;
       if (items.length === 1) {
-        svgParts += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + item.color + '"/>';
+        svgSlices += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + item.color + '"/>';
       } else {
-        svgParts += '<path d="' + pieSlicePath(cx, cy, r, startAngle, endAngle) + '" fill="' + item.color + '"/>';
-      }
-      if (item.pct >= LABEL_THRESHOLD) {
-        var mid = (startAngle + endAngle) / 2;
-        var lp = polarPoint(cx, cy, r * 0.66, mid);
-        svgParts += '<text x="' + lp.x.toFixed(1) + '" y="' + lp.y.toFixed(1) + '" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="15" font-weight="700">' + Math.round(item.pct) + '%</text>';
+        svgSlices += '<path d="' + pieSlicePath(cx, cy, r, item.startAngle, item.endAngle) + '" fill="' + item.color + '"/>';
       }
       cursor += item.pct;
     });
 
-    var svg = '<svg viewBox="0 0 200 200" class="pie-svg" role="img" aria-label="카테고리별 지출 비중 원그래프">' + svgParts + '</svg>';
+    var LABEL_THRESHOLD = 5;
+    var MAX_LABELS = 7;
+    var labelItems = items.filter(function (it) { return it.pct >= LABEL_THRESHOLD; })
+      .sort(function (a, b) { return b.pct - a.pct; }).slice(0, MAX_LABELS);
+    var laid = layoutCalloutLabels(labelItems, cx, cy, r, 34, 18, 212);
+
+    var svgLabels = '';
+    function drawCallout(it, side) {
+      var edge = polarPoint(cx, cy, r, it.mid);
+      var elbowR = r + 14;
+      var elbow = polarPoint(cx, cy, elbowR, it.mid);
+      var anchorX = side === 'right' ? 258 : 82;
+      var textAnchor = side === 'right' ? 'start' : 'end';
+      var textX = side === 'right' ? anchorX + 5 : anchorX - 5;
+      svgLabels += '<polyline points="' + edge.x.toFixed(1) + ',' + edge.y.toFixed(1) + ' ' +
+        elbow.x.toFixed(1) + ',' + elbow.y.toFixed(1) + ' ' + anchorX + ',' + it.labelY.toFixed(1) +
+        '" fill="none" stroke="' + it.color + '" stroke-width="1.5"/>';
+      svgLabels += '<text x="' + textX + '" y="' + (it.labelY - 3) + '" text-anchor="' + textAnchor + '" font-size="12" font-weight="700" style="fill:var(--text, #14161a);">' +
+        categoryEmoji(it.cat.name) + ' ' + escapeHtml(truncateLabel(it.cat.name)) + '</text>';
+      svgLabels += '<text x="' + textX + '" y="' + (it.labelY + 11) + '" text-anchor="' + textAnchor + '" font-size="12" font-weight="700" fill="' + it.color + '">' +
+        Math.round(it.pct) + '%</text>';
+    }
+    laid.rightSide.forEach(function (it) { drawCallout(it, 'right'); });
+    laid.leftSide.forEach(function (it) { drawCallout(it, 'left'); });
+
+    var svg = '<svg viewBox="0 0 340 230" class="pie-svg" role="img" aria-label="카테고리별 지출 비중 원그래프">' + svgSlices + svgLabels + '</svg>';
 
     var legendHtml = items.map(function (item) {
       return '<div class="pie-legend-row">' +

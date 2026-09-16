@@ -58,8 +58,8 @@ h2 { font-size: 15px; font-weight: 700; margin: 1.25rem 0 0.6rem; color: var(--t
 .view-toggle-amt { font-size: 15px; font-weight: 800; }
 
 /* ---- Pie chart ---- */
-.pie-wrap { display: flex; justify-content: center; padding: 8px 0 10px; }
-.pie-svg { width: 190px; height: 190px; }
+.pie-wrap { display: flex; justify-content: center; padding: 4px 0 6px; }
+.pie-svg { width: 100%; max-width: 380px; height: auto; }
 .pie-legend { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
 .pie-legend-row { display: grid; grid-template-columns: 42px 24px 1fr auto; align-items: center; column-gap: 9px; font-size: 14px; }
 .pie-pct-badge {
