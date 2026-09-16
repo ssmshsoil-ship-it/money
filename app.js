@@ -119,7 +119,9 @@ import {
         { id: 'ac-coin', name: '코인', type: 'asset' },
         { id: 'ac-debt', name: '대출', type: 'debt' }
       ],
-      assetItems: []
+      assetItems: [],
+      cards: [],
+      cardPayments: {}
     };
   }
 
@@ -241,6 +243,15 @@ import {
   }
   function totalIncomeForMonth(mk) {
     return getIncomeForMonth(mk).reduce(function (sum, e) { return sum + e.amount; }, 0);
+  }
+
+  function totalCardPaymentForMonth(mk) {
+    var monthData = state.cardPayments[mk] || {};
+    var total = 0;
+    for (var cardId in monthData) {
+      if (Object.prototype.hasOwnProperty.call(monthData, cardId)) total += monthData[cardId];
+    }
+    return total;
   }
 
   function planMonthList() {
@@ -678,6 +689,32 @@ import {
       return;
     }
 
+    var incomeThisMonth = totalIncomeForMonth(currentViewMonth);
+    var cardPaymentThisMonth = totalCardPaymentForMonth(currentViewMonth);
+    var expectedBalance = incomeThisMonth - cardPaymentThisMonth;
+
+    html += '<h2>이번달 현금흐름</h2>';
+    html += '<div class="card">';
+    html += '<div class="cashflow-row"><span>수입</span><span class="cashflow-amt income">' + formatWon(incomeThisMonth) + '</span></div>';
+    html += '<div class="cashflow-row"><span>카드결제 예정</span><span class="cashflow-amt expense">-' + formatWon(cardPaymentThisMonth) + '</span></div>';
+    html += '<div class="cashflow-row total"><span>예상 잔액</span><span class="cashflow-amt' + (expectedBalance < 0 ? ' negative' : '') + '">' + formatWon(expectedBalance) + '</span></div>';
+    if (state.cards.length === 0) {
+      html += '<p class="metric-sub" style="margin-top:10px;">"더보기 → 설정"에서 카드를 등록하면 결제일별로 이번달 결제예정액을 입력할 수 있습니다.</p>';
+    } else {
+      html += '<div style="margin-top:10px;">';
+      state.cards.slice().sort(function (a, b) { return (a.day || 99) - (b.day || 99); }).forEach(function (c) {
+        var monthData = state.cardPayments[currentViewMonth] || {};
+        var val = (monthData[c.id] !== undefined) ? monthData[c.id] : '';
+        html += '<div class="card-payment-row">';
+        html += '<span class="card-payment-name">' + escapeHtml(c.name) + (c.day ? ' <span class="card-payment-day">· 매월 ' + c.day + '일</span>' : '') + '</span>';
+        html += '<input type="number" class="card-payment-input" data-card="' + c.id + '" placeholder="0" inputmode="numeric" value="' + val + '">';
+        html += '</div>';
+      });
+      html += '</div>';
+      html += '<p class="metric-sub" style="margin-top:8px;">카드사 앱에서 확인한 이번달 청구액을 직접 입력하세요(자동연동 안 됨).</p>';
+    }
+    html += '</div>';
+
     html += '<div class="card">';
     html += '<p class="metric-label">이번달 합계소비액</p>';
     html += '<p class="metric-value">' + formatWon(data.totalSpent) + ' <span class="metric-sub">/ 상한 ' + formatWon(data.totalCap) + '</span></p>';
@@ -955,6 +992,20 @@ import {
     html += '</div>';
     html += '<div style="margin-top:0.8rem;"><button class="btn" data-action="save-asset-categories">자산 카테고리 저장</button></div>';
 
+    html += '<h2>카드 관리</h2>';
+    html += '<p class="metric-sub" style="margin:0 0 8px;">등록해두면 홈 화면 "이번달 현금흐름"에서 결제일 순으로 카드값을 입력할 수 있습니다.</p>';
+    html += '<div class="card" id="s-cards">';
+    state.cards.forEach(function (c) {
+      html += '<div class="settings-row" data-card-id="' + c.id + '">';
+      html += '<input type="text" class="s-card-name" placeholder="예: 현대카드" value="' + escapeHtml(c.name) + '">';
+      html += '<input type="number" class="s-card-day" placeholder="결제일" min="1" max="31" value="' + (c.day || '') + '" inputmode="numeric" style="flex:0 0 70px;">';
+      html += '<button class="tx-del" data-action="delete-card" data-id="' + c.id + '">×</button>';
+      html += '</div>';
+    });
+    html += '<button class="btn secondary small" data-action="add-card" style="margin-top:6px;">+ 카드 추가</button>';
+    html += '</div>';
+    html += '<div style="margin-top:0.8rem;"><button class="btn" data-action="save-cards">카드 저장</button></div>';
+
     html += '<h2>데이터 백업 (로컬 파일)</h2>';
     html += '<div class="card">';
     html += '<p class="metric-sub">데이터는 두 분 모두에게 실시간으로 공유됩니다(Firebase). 이 백업은 만약을 위한 추가 안전장치입니다.</p>';
@@ -1037,6 +1088,15 @@ import {
       pushState();
     }
     else if (action === 'save-asset-categories') { saveAssetCategories(); }
+    else if (action === 'add-card') {
+      state.cards.push({ id: uid(), name: '', day: 25 });
+      pushState();
+    }
+    else if (action === 'delete-card') {
+      state.cards = state.cards.filter(function (c) { return c.id !== actionEl.dataset.id; });
+      pushState();
+    }
+    else if (action === 'save-cards') { saveCards(); }
     else if (action === 'save-income') { saveIncome(); }
     else if (action === 'edit-income') {
       pushNav({ editingIncomeId: actionEl.dataset.id });
@@ -1162,6 +1222,13 @@ import {
       var mk = e.target.dataset.month;
       var val = parseInt(e.target.value, 10) || 0;
       state.monthlySavings[mk] = val;
+      pushState();
+    }
+    if (e.target.classList.contains('card-payment-input')) {
+      var cardId = e.target.dataset.card;
+      var amt = parseInt(e.target.value, 10) || 0;
+      if (!state.cardPayments[currentViewMonth]) state.cardPayments[currentViewMonth] = {};
+      state.cardPayments[currentViewMonth][cardId] = amt;
       pushState();
     }
     if (e.target.id === 'ai-category') {
@@ -1328,6 +1395,18 @@ import {
       if (!cat) return;
       cat.name = row.querySelector('.s-assetcat-name').value.trim() || cat.name;
       cat.type = row.querySelector('.s-assetcat-type').value;
+    });
+    pushState();
+    showToast('저장되었습니다');
+  }
+
+  function saveCards() {
+    document.querySelectorAll('#s-cards .settings-row').forEach(function (row) {
+      var card = state.cards.find(function (c) { return c.id === row.dataset.cardId; });
+      if (!card) return;
+      card.name = row.querySelector('.s-card-name').value.trim() || card.name;
+      var day = parseInt(row.querySelector('.s-card-day').value, 10);
+      card.day = (day >= 1 && day <= 31) ? day : card.day;
     });
     pushState();
     showToast('저장되었습니다');

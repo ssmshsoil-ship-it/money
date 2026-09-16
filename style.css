@@ -97,6 +97,18 @@ h2 { font-size: 15px; font-weight: 700; margin: 1.25rem 0 0.6rem; color: var(--t
 .asset-item-amt { font-weight: 700; text-align: right; }
 .asset-item-arrow { color: var(--text-muted); font-size: 16px; }
 
+/* ---- Cash flow card (Home tab) ---- */
+.cashflow-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 14px; }
+.cashflow-row.total { border-top: 0.5px solid var(--border); margin-top: 4px; padding-top: 10px; font-weight: 700; }
+.cashflow-amt { font-weight: 700; }
+.cashflow-amt.income { color: #15803d; }
+.cashflow-amt.expense { color: var(--danger); }
+.cashflow-amt.negative { color: var(--danger); }
+.card-payment-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; gap: 10px; }
+.card-payment-name { font-size: 13.5px; font-weight: 600; }
+.card-payment-day { font-weight: 400; color: var(--text-muted); font-size: 12px; }
+.card-payment-input { width: 120px; padding: 7px 10px; font-size: 13.5px; text-align: right; }
+
 /* ---- Top app bar ---- */
 .topbar {
   display: grid; grid-template-columns: auto 1fr auto;
