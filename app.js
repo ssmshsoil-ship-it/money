@@ -110,8 +110,8 @@ import {
       monthlySavings: {},
       schedules: [],
       trash: [],
-      assets: { debt: 0, stock: 0 },
-      debtItems: []
+      debtItems: [],
+      stockItems: []
     };
   }
 
@@ -279,6 +279,35 @@ import {
     return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
   }
 
+  var EMOJI_RULES = [
+    [/마트|편의점|장보기/, '🛒'],
+    [/배달|외식|맛집|식사/, '🍽️'],
+    [/온라인.?쇼핑/, '🛍️'],
+    [/카페|커피/, '☕'],
+    [/구독|디지털/, '📱'],
+    [/교통|주유|차량|주차/, '🚗'],
+    [/미용|생활서비스|이발|헤어/, '💇'],
+    [/의류|잡화|옷|쇼핑/, '👗'],
+    [/레저|여가|취미|놀이/, '🎮'],
+    [/병원|약국|건강|의료/, '🏥'],
+    [/학원비|학원/, '📚'],
+    [/학자금|등록금/, '🎓'],
+    [/관리비/, '🏢'],
+    [/도시가스|가스/, '🔥'],
+    [/통신|휴대폰|인터넷/, '📶'],
+    [/보험/, '🛡️'],
+    [/월세|전세|주거/, '🏠'],
+    [/대출|이자|상환/, '🏦'],
+    [/이체|송금/, '💸'],
+    [/경조사|선물/, '🎁']
+  ];
+  function categoryEmoji(name) {
+    for (var i = 0; i < EMOJI_RULES.length; i++) {
+      if (EMOJI_RULES[i][0].test(name)) return EMOJI_RULES[i][1];
+    }
+    return '💰';
+  }
+
   var toastTimer1 = null, toastTimer2 = null;
   function showToast(msg) {
     clearTimeout(toastTimer1); clearTimeout(toastTimer2);
@@ -381,7 +410,7 @@ import {
         var cat = idx > -1 ? state.categories[idx] : null;
         var dotColor = idx > -1 ? categoryColor(idx) : '#9ca3af';
         html += '<div class="tx-row" style="grid-template-columns:1fr auto;">';
-        html += '<div class="tx-main"><span class="tx-cat"><span class="tx-dot" style="background:' + dotColor + ';"></span>' + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
+        html += '<div class="tx-main"><span class="tx-cat"><span class="tx-dot" style="background:' + dotColor + ';"></span>' + (cat ? categoryEmoji(cat.name) + ' ' : '') + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
         if (e.memo) html += '<span class="tx-memo">' + escapeHtml(e.memo) + '</span>';
         html += '<span class="tx-date">' + e.date + '</span></div>';
         html += '<span class="tx-amt">' + formatWon(e.amount) + '</span>';
@@ -481,7 +510,7 @@ import {
         var cat = idx > -1 ? state.categories[idx] : null;
         var daysLeft = 10 - Math.floor((now - new Date(t.deletedAt)) / 86400000);
         html += '<div class="trash-row">';
-        html += '<div class="tx-main"><span class="tx-cat">' + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
+        html += '<div class="tx-main"><span class="tx-cat">' + (cat ? categoryEmoji(cat.name) + ' ' : '') + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
         if (t.memo) html += '<span class="tx-memo">' + escapeHtml(t.memo) + '</span>';
         html += '<span class="tx-date">' + t.date + ' · ' + formatWon(t.amount) + '</span>';
         html += '<span class="trash-days">' + Math.max(daysLeft, 0) + '일 후 자동삭제</span>';
@@ -499,30 +528,39 @@ import {
   function buildPieChart(data) {
     var total = data.totalSpent;
     if (total <= 0) return '<div class="empty-state">이번달 지출 내역이 없습니다.</div>';
-    var gradientParts = [];
-    var cursor = 0;
-    var legendHtml = '';
+    var items = [];
     state.categories.forEach(function (cat, i) {
       var spent = getCategoryTotal(currentViewMonth, cat.id);
       if (spent <= 0) return;
-      var pct = spent / total * 100;
-      var color = categoryColor(i);
-      var start = cursor;
-      var end = cursor + pct;
-      gradientParts.push(color + ' ' + start.toFixed(2) + '% ' + end.toFixed(2) + '%');
+      items.push({ cat: cat, color: categoryColor(i), spent: spent, pct: spent / total * 100 });
+    });
+    items.sort(function (a, b) { return b.spent - a.spent; });
+
+    var gradientParts = [];
+    var cursor = 0;
+    items.forEach(function (item) {
+      var start = cursor, end = cursor + item.pct;
+      gradientParts.push(item.color + ' ' + start.toFixed(2) + '% ' + end.toFixed(2) + '%');
       cursor = end;
-      legendHtml += '<div class="pie-legend-row"><span class="pie-dot" style="background:' + color + ';"></span>' +
-        '<span class="pie-legend-name">' + escapeHtml(cat.name) + '</span>' +
-        '<span class="pie-legend-pct">' + pct.toFixed(1) + '%</span>' +
-        '<span class="pie-legend-amt">' + formatWon(spent) + '</span></div>';
     });
     var gradient = 'conic-gradient(' + gradientParts.join(',') + ')';
+
+    var legendHtml = items.map(function (item) {
+      return '<div class="pie-legend-row">' +
+        '<span class="pie-pct-badge" style="background:' + item.color + ';">' + Math.round(item.pct) + '%</span>' +
+        '<span class="pie-emoji">' + categoryEmoji(item.cat.name) + '</span>' +
+        '<span class="pie-legend-name">' + escapeHtml(item.cat.name) + '</span>' +
+        '<span class="pie-legend-amt">' + formatWon(item.spent) + '</span>' +
+        '</div>';
+    }).join('');
+
     return '<div class="pie-wrap"><div class="pie-chart" style="background:' + gradient + ';"></div></div>' +
       '<div class="pie-legend">' + legendHtml + '</div>';
   }
 
   function renderHome() {
     var data = monthlyReportData(currentViewMonth);
+    var incomeTotalForToggle = totalIncomeForMonth(currentViewMonth);
 
     var html = '';
     html += topBar('가계부');
@@ -533,8 +571,8 @@ import {
     html += '</div>';
 
     html += '<div class="view-toggle">';
-    html += '<button class="view-toggle-btn' + (homeView === 'expense' ? ' active' : '') + '" data-action="set-home-view" data-view="expense">지출</button>';
-    html += '<button class="view-toggle-btn' + (homeView === 'income' ? ' active' : '') + '" data-action="set-home-view" data-view="income">수입</button>';
+    html += '<button class="view-toggle-btn' + (homeView === 'expense' ? ' active' : '') + '" data-action="set-home-view" data-view="expense"><span>지출</span><span class="view-toggle-amt">' + formatWon(data.totalSpent) + '</span></button>';
+    html += '<button class="view-toggle-btn' + (homeView === 'income' ? ' active' : '') + '" data-action="set-home-view" data-view="income"><span>수입</span><span class="view-toggle-amt">' + formatWon(incomeTotalForToggle) + '</span></button>';
     html += '</div>';
 
     if (homeView === 'income') {
@@ -582,7 +620,7 @@ import {
       var isOpen = expandedCategoryId === cat.id;
       html += '<div class="cat-row' + (isOpen ? ' open' : '') + '" data-action="toggle-category" data-id="' + cat.id + '">';
       var overAmt = over ? ' <span class="cat-over-badge">(+' + formatWon(spent - cat.cap) + ')</span>' : '';
-      html += '<div class="cat-row-top"><span><span class="cat-chevron">' + (isOpen ? '▾' : '▸') + '</span>' + escapeHtml(cat.name) + overAmt + '</span><span class="amt"><span class="amt-spent' + (over ? ' over' : '') + '">' + formatWon(spent) + '</span> <span class="amt-sep">/</span> <span class="amt-cap">' + formatWon(cat.cap) + '</span></span></div>';
+      html += '<div class="cat-row-top"><span><span class="cat-chevron">' + (isOpen ? '▾' : '▸') + '</span>' + categoryEmoji(cat.name) + ' ' + escapeHtml(cat.name) + overAmt + '</span><span class="amt"><span class="amt-spent' + (over ? ' over' : '') + '">' + formatWon(spent) + '</span> <span class="amt-sep">/</span> <span class="amt-cap">' + formatWon(cat.cap) + '</span></span></div>';
       html += '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%;background:' + color + ';"></div></div>';
       if (isOpen) {
         var items = getExpensesForMonth(currentViewMonth)
@@ -646,7 +684,7 @@ import {
         var style = isSelected
           ? 'background:' + color + ';border-color:' + color + ';color:#fff;'
           : 'background:' + hexToRgba(color, 0.14) + ';border-color:' + hexToRgba(color, 0.35) + ';color:var(--text);';
-        html += '<div class="chip' + (isSelected ? ' selected' : '') + '" data-cat="' + cat.id + '" data-idx="' + i + '" style="' + style + '">' + escapeHtml(cat.name) + '</div>';
+        html += '<div class="chip' + (isSelected ? ' selected' : '') + '" data-cat="' + cat.id + '" data-idx="' + i + '" style="' + style + '">' + categoryEmoji(cat.name) + ' ' + escapeHtml(cat.name) + '</div>';
       });
       html += '</div>';
     } else {
@@ -693,7 +731,7 @@ import {
           var dotColor = catIndex > -1 ? categoryColor(catIndex) : '#9ca3af';
           html += '<div class="tx-row' + (e.id === editingId ? ' editing' : '') + '">';
           html += '<div class="tx-main">';
-          html += '<span class="tx-cat"><span class="tx-dot" style="background:' + dotColor + ';"></span>' + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
+          html += '<span class="tx-cat"><span class="tx-dot" style="background:' + dotColor + ';"></span>' + (cat ? categoryEmoji(cat.name) + ' ' : '') + (cat ? escapeHtml(cat.name) : '기타') + '</span>';
           if (e.memo) html += '<span class="tx-memo">' + escapeHtml(e.memo) + '</span>';
           html += '<span class="tx-date">' + e.date + '</span>';
           html += '</div>';
@@ -733,7 +771,9 @@ import {
       cumTarget += state.savingsGoal;
       cumActual += (state.monthlySavings[mk] || 0);
     });
-    var netWorth = cumActual + state.assets.stock - state.assets.debt;
+    var totalDebt = state.debtItems.reduce(function (s, d) { return s + d.amount; }, 0);
+    var totalStock = state.stockItems.reduce(function (s, i) { return s + i.amount; }, 0);
+    var netWorth = cumActual + totalStock - totalDebt;
 
     var html = '';
     html += topBar('12개월 저축 플랜');
@@ -743,13 +783,42 @@ import {
     html += '<p class="metric-label">순자산 (저축 + 주식 − 빚)</p>';
     html += '<p class="metric-value' + (netWorth < 0 ? ' negative' : '') + '">' + formatWon(netWorth) + '</p>';
     html += '</div>';
+
     html += '<div class="card">';
-    html += '<div class="asset-row"><span class="asset-label"><span class="asset-dot savings"></span>저축</span><span class="asset-value">' + formatWon(cumActual) + '</span></div>';
-    html += '<div class="asset-row"><span class="asset-label"><span class="asset-dot stock"></span>주식</span><input type="number" id="asset-stock" class="asset-input" value="' + state.assets.stock + '" inputmode="numeric"></div>';
-    html += '<div class="asset-row"><span class="asset-label"><span class="asset-dot debt"></span>빚</span><input type="number" id="asset-debt" class="asset-input" value="' + state.assets.debt + '" inputmode="numeric"></div>';
-    html += '<button class="btn secondary small" data-action="save-assets" style="margin-top:10px;">자산 저장</button>';
-    html += '<p class="metric-sub" style="margin-top:8px;">주식·빚은 현재 잔액을 그때그때 직접 업데이트하는 방식입니다. 저축은 아래 저축플랜 표에서 자동 계산됩니다.</p>';
+    html += '<div class="asset-row"><span class="asset-label"><span class="asset-dot savings"></span>저축 (자동계산)</span><span class="asset-value">' + formatWon(cumActual) + '</span></div>';
     html += '</div>';
+
+    html += '<div class="card">';
+    html += '<div class="asset-section-head"><span class="asset-label"><span class="asset-dot stock"></span>주식</span><span class="asset-value">' + formatWon(totalStock) + '</span></div>';
+    html += '<div id="stock-items">';
+    state.stockItems.forEach(function (s) {
+      html += '<div class="settings-row" data-stock-id="' + s.id + '">';
+      html += '<input type="text" class="s-stock-name" placeholder="예: 삼성전자" value="' + escapeHtml(s.name) + '">';
+      html += '<input type="number" class="s-stock-amount" placeholder="금액" value="' + s.amount + '" inputmode="numeric">';
+      html += '<button class="tx-del" data-action="delete-stock-item" data-id="' + s.id + '">×</button>';
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '<button class="btn secondary small" data-action="add-stock-item" style="margin-top:6px;">+ 주식 항목 추가</button>';
+    html += '</div>';
+
+    html += '<div class="card">';
+    html += '<div class="asset-section-head"><span class="asset-label"><span class="asset-dot debt"></span>빚</span><span class="asset-value">' + formatWon(totalDebt) + '</span></div>';
+    html += '<div id="debt-items">';
+    state.debtItems.forEach(function (d) {
+      html += '<div class="settings-row" data-debt-id="' + d.id + '">';
+      html += '<input type="text" class="s-debt-name" placeholder="예: 신한대출" value="' + escapeHtml(d.name) + '">';
+      html += '<input type="number" class="s-debt-amount" placeholder="금액" value="' + d.amount + '" inputmode="numeric">';
+      html += '<input type="number" class="s-debt-day" placeholder="일" min="1" max="31" value="' + d.day + '" inputmode="numeric" style="flex:0 0 52px;">';
+      html += '<button class="tx-del" data-action="delete-debt-item" data-id="' + d.id + '">×</button>';
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '<button class="btn secondary small" data-action="add-debt-item" style="margin-top:6px;">+ 빚 항목 추가</button>';
+    html += '</div>';
+
+    html += '<button class="btn" data-action="save-assets" style="margin-bottom:0.5rem;">자산 저장</button>';
+    html += '<p class="metric-sub" style="margin-bottom:1rem;">빚·주식은 현재 잔액을 그때그때 직접 업데이트하는 방식입니다. 저축은 저축플랜 표에서 자동 계산됩니다.</p>';
 
     html += '<h2>저축누계</h2>';
     html += '<div class="card">';
@@ -800,21 +869,7 @@ import {
 
     html += '<div style="margin-top:1rem;"><button class="btn" data-action="save-settings">설정 저장</button></div>';
 
-    html += '<h2>대출 상환 고정일</h2>';
-    html += '<div class="card" id="s-debtitems">';
-    if (state.debtItems.length === 0) {
-      html += '<p class="metric-sub" style="margin:0 0 8px;">매월 고정일에 상환되는 대출을 등록해두면 알림에서 챙기기 쉽습니다.</p>';
-    }
-    state.debtItems.forEach(function (d) {
-      html += '<div class="settings-row" data-debt-id="' + d.id + '">';
-      html += '<input type="text" class="s-debt-name" placeholder="예: 신한대출" value="' + escapeHtml(d.name) + '">';
-      html += '<input type="number" class="s-debt-day" placeholder="일" min="1" max="31" value="' + d.day + '" inputmode="numeric" style="flex:0 0 60px;">';
-      html += '<button class="tx-del" data-action="delete-debtitem" data-id="' + d.id + '">×</button>';
-      html += '</div>';
-    });
-    html += '<button class="btn secondary small" data-action="add-debtitem" style="margin-top:6px;">+ 대출 항목 추가</button>';
-    html += '</div>';
-    html += '<div style="margin-top:0.8rem;"><button class="btn" data-action="save-debtitems">대출 상환일 저장</button></div>';
+    html += '<p class="metric-sub" style="margin-top:1rem;">빚·주식 관리는 "저축플랜" 탭의 "자산현황"으로 옮겼습니다.</p>';
 
     html += '<h2>데이터 백업 (로컬 파일)</h2>';
     html += '<div class="card">';
@@ -873,13 +928,22 @@ import {
     else if (action === 'next-month') { currentViewMonth = shiftMonth(currentViewMonth, 1); render(); }
     else if (action === 'set-home-view') { homeView = actionEl.dataset.view; render(); }
     else if (action === 'set-add-view') { addView = actionEl.dataset.view; render(); }
-    else if (action === 'save-assets') {
-      var stockVal = parseInt(document.getElementById('asset-stock').value, 10);
-      var debtVal = parseInt(document.getElementById('asset-debt').value, 10);
-      state.assets.stock = isNaN(stockVal) ? 0 : stockVal;
-      state.assets.debt = isNaN(debtVal) ? 0 : debtVal;
+    else if (action === 'save-assets') { saveAssets(); }
+    else if (action === 'add-debt-item') {
+      state.debtItems.push({ id: uid(), name: '', amount: 0, day: 25 });
       pushState();
-      showToast('자산이 저장되었습니다');
+    }
+    else if (action === 'delete-debt-item') {
+      state.debtItems = state.debtItems.filter(function (d) { return d.id !== actionEl.dataset.id; });
+      pushState();
+    }
+    else if (action === 'add-stock-item') {
+      state.stockItems.push({ id: uid(), name: '', amount: 0 });
+      pushState();
+    }
+    else if (action === 'delete-stock-item') {
+      state.stockItems = state.stockItems.filter(function (s) { return s.id !== actionEl.dataset.id; });
+      pushState();
     }
     else if (action === 'save-income') { saveIncome(); }
     else if (action === 'edit-income') {
@@ -949,26 +1013,6 @@ import {
     else if (action === 'open-scheduler') { pushNav({ modal: 'scheduler', editingScheduleId: null }); }
     else if (action === 'open-trash') { pushNav({ modal: 'trash' }); }
     else if (action === 'open-settings') { pushNav({ modal: 'settings' }); }
-    else if (action === 'add-debtitem') {
-      state.debtItems.push({ id: uid(), name: '', day: 25 });
-      pushState();
-    }
-    else if (action === 'delete-debtitem') {
-      state.debtItems = state.debtItems.filter(function (d) { return d.id !== actionEl.dataset.id; });
-      pushState();
-    }
-    else if (action === 'save-debtitems') {
-      document.querySelectorAll('#s-debtitems .settings-row').forEach(function (row) {
-        var id = row.dataset.debtId;
-        var item = state.debtItems.find(function (d) { return d.id === id; });
-        if (!item) return;
-        item.name = row.querySelector('.s-debt-name').value.trim() || item.name;
-        var day = parseInt(row.querySelector('.s-debt-day').value, 10);
-        item.day = (day >= 1 && day <= 31) ? day : item.day;
-      });
-      pushState();
-      showToast('저장되었습니다');
-    }
     else if (action === 'close-modal') { goBack(); }
     else if (action === 'edit-schedule') { pushNav({ editingScheduleId: actionEl.dataset.id }); }
     else if (action === 'cancel-schedule-edit') { goBack(); }
@@ -1140,6 +1184,27 @@ import {
       pushState();
       showToast('일정이 등록되었습니다');
     }
+  }
+
+  function saveAssets() {
+    document.querySelectorAll('#debt-items .settings-row').forEach(function (row) {
+      var item = state.debtItems.find(function (d) { return d.id === row.dataset.debtId; });
+      if (!item) return;
+      item.name = row.querySelector('.s-debt-name').value.trim() || item.name;
+      var amount = parseInt(row.querySelector('.s-debt-amount').value, 10);
+      item.amount = isNaN(amount) ? 0 : amount;
+      var day = parseInt(row.querySelector('.s-debt-day').value, 10);
+      item.day = (day >= 1 && day <= 31) ? day : item.day;
+    });
+    document.querySelectorAll('#stock-items .settings-row').forEach(function (row) {
+      var item = state.stockItems.find(function (s) { return s.id === row.dataset.stockId; });
+      if (!item) return;
+      item.name = row.querySelector('.s-stock-name').value.trim() || item.name;
+      var amount = parseInt(row.querySelector('.s-stock-amount').value, 10);
+      item.amount = isNaN(amount) ? 0 : amount;
+    });
+    pushState();
+    showToast('자산이 저장되었습니다');
   }
 
   function saveSettings() {
